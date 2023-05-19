@@ -44,6 +44,10 @@ function Q2dBoudary(Lx::T, Ly::T, Lz::T) where T
     return Boundary((Lx, Ly, Lz), (1, 1, 0))
 end
 
+function CubicBoundary(L::T) where T
+    return Boundary((L, L, L), (1, 1, 1))
+end
+
 
 abstract type AbstractLogger end
 abstract type AbstractNeighborFinder end
@@ -56,7 +60,6 @@ struct MDSys{T}
     atoms::Vector{Atom{T}}
     boundary::Boundary{T}
     interactions::Tuple{AbstractInteraction}
-    thermostat::Tuple{AbstractThermoStat}
     logger::Tuple{AbstractLogger}
     simulator::AbstractSimulator
 end
@@ -84,3 +87,9 @@ function SimulationInfo(mdsys::MDSys, place::NTuple{6, T}; min_r=zero(T), max_at
 
     return SimulationInfo{T}(atoms_coords, atoms_velocity)
 end
+
+struct NoThermoStat <: AbstractThermoStat
+    nostat::Bool
+end
+
+NoThermoStat() = NoThermoStat(true)
