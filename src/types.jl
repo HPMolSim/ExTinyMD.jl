@@ -48,6 +48,12 @@ function CubicBoundary(L::T) where T
     return Boundary((L, L, L), (1, 1, 1))
 end
 
+function BoundaryCheck(coo::Point{3, T}, boundary::Boundary{T}) where T <: Number
+    return Point(
+        coo[1] - boundary.period[1] * boundary.length[1] * div(coo[1], boundary.length[1], RoundDown), 
+        coo[2] - boundary.period[2] * boundary.length[2] * div(coo[2], boundary.length[2], RoundDown), 
+        coo[3] - boundary.period[3] * boundary.length[3] * div(coo[3], boundary.length[3], RoundDown))
+end
 
 abstract type AbstractLogger end
 abstract type AbstractNeighborFinder end
@@ -56,7 +62,7 @@ abstract type AbstractThermoStat end
 abstract type AbstractSimulator end
 
 struct MDSys{T}
-    n_atoms::Int
+    n_atoms::Integer
     atoms::Vector{Atom{T}}
     boundary::Boundary{T}
     interactions::Tuple{AbstractInteraction}
@@ -65,27 +71,28 @@ struct MDSys{T}
 end
 
 function MDSys(;
-    n_atoms::Int,
+    n_atoms::TI,
     atoms::Vector{Atom{T}},
     boundary::Boundary{T},
     interactions::Tuple{AbstractInteraction},
     thermostat::Tuple{AbstractThermoStat},
     logger::Tuple{AbstractLogger},
     simulator::AbstractSimulator,
-) where T
+) where {TI <: Integer, T}
     return System{T}(n_atoms, atoms, boundary, interactions, thermostat, logger, simulator)
 end
 
 mutable struct SimulationInfo{T}
+    running_step::Int64
     coords::Vector{Point{3, T}}
     velcoity::Vector{Point{3, T}}
 end
 
-function SimulationInfo(mdsys::MDSys, place::NTuple{6, T}; min_r=zero(T), max_attempts::Integer=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where T
+function SimulationInfo(mdsys::MDSys, place::NTuple{6, T}; min_r=zero(T), max_attempts::TI=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T, TI<:Integer}
     atoms_coords = random_position(mdsys.n_atoms, place, mdsys.boundary; min_r = min_r, max_attempts = max_attempts)
     atoms_velocity = random_velocity(;temp = temp, atoms = mdsys.atoms, rng=rng)
 
-    return SimulationInfo{T}(atoms_coords, atoms_velocity)
+    return SimulationInfo{T}(zero(Int64), atoms_coords, atoms_velocity)
 end
 
 struct NoThermoStat <: AbstractThermoStat

@@ -1,7 +1,7 @@
 export random_position, random_velocity
 
 # notice that this function only support 3D systems
-function random_position(n_atoms::Integer, place::NTuple{6, T}, boundary::Boundary; min_r=zero(T), max_attempts::Integer=100) where T
+function random_position(n_atoms::Integer, place::NTuple{6, T}, boundary::Boundary; min_r=zero(T), max_attempts::TI=100) where where {T, TI<:Integer}
     atoms_coords = Vector{Point{3, T}}()
     volume = (place[2] - place[1]) * (place[4] - place[3]) * (place[6] - place[5])
     max_atoms = volume / (4/3 * π * min_r^3)
