@@ -65,8 +65,8 @@ struct MDSys{T}
     n_atoms::Integer
     atoms::Vector{Atom{T}}
     boundary::Boundary{T}
-    interactions::Tuple{AbstractInteraction}
-    logger::Tuple{AbstractLogger}
+    interactions::Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}}
+    logger::Vector{AbstractLogger}
     simulator::AbstractSimulator
 end
 
@@ -74,9 +74,9 @@ function MDSys(;
     n_atoms::TI,
     atoms::Vector{Atom{T}},
     boundary::Boundary{T},
-    interactions::Tuple{AbstractInteraction},
-    thermostat::Tuple{AbstractThermoStat},
-    logger::Tuple{AbstractLogger},
+    interactions::Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}},
+    thermostat::AbstractThermoStat,
+    logger::Vector{AbstractLogger},
     simulator::AbstractSimulator,
 ) where {TI <: Integer, T}
     return System{T}(n_atoms, atoms, boundary, interactions, thermostat, logger, simulator)
