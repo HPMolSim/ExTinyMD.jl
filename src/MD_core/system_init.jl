@@ -1,7 +1,7 @@
 export random_position, random_velocity
 
 # notice that this function only support 3D systems
-function random_position(n_atoms::Integer, place::NTuple{6, T}, boundary::Boundary; min_r=zero(T), max_attempts::TI=100) where where {T, TI<:Integer}
+function random_position(n_atoms::TI, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::TI=100) where {T, TI<:Integer}
     atoms_coords = Vector{Point{3, T}}()
     volume = (place[2] - place[1]) * (place[4] - place[3]) * (place[6] - place[5])
     max_atoms = volume / (4/3 * π * min_r^3)
@@ -38,7 +38,7 @@ function random_coords(place::NTuple{6, T}) where T
     return Point((place[2] - place[1]) * rand(T), (place[4] - place[3]) * rand(T), (place[6] - place[5]) * rand(T)) + Point(place[1], place[3], place[5])
 end
 
-function distance_boundary(coord_1::Point{3, T}, coord_2::Point{3, T}, boundary::Boundary{T}) where T
+@inbounds function distance_boundary(coord_1::Point{3, T}, coord_2::Point{3, T}, boundary::Boundary{T}) where T
     min_dist_sq = dist2(coord_1, coord_2)
 
     for mx = -boundary.period[1]:boundary.period[1]

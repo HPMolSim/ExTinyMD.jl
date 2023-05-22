@@ -1,4 +1,4 @@
-export Point, Atom, Boundary, Q2dBoudary, MDsys
+export Point, Atom, Boundary, Q2dBoudary, MDsys, position_check3D, position_checkQ2D
 
 struct Point{N,T}
     coo::NTuple{N,T}
@@ -10,6 +10,7 @@ Base.:(-)(x::Point{N,T}) where {N, T} = Point(Base.:(-).(x.coo))
 Base.adjoint(x::Point) = x
 Base.:(*)(x::Number, y::Point) = Point(y.coo .* x)
 Base.:(*)(y::Point, x::Number) = Point(y.coo .* x)
+Base.:(/)(y::Point, x::Number) = Point(y.coo ./ x)
 Base.iterate(x::Point, args...) = Base.iterate(x.coo, args...)
 Base.getindex(x::Point, i::Int) = x.coo[i]
 
@@ -55,44 +56,72 @@ function BoundaryCheck(coo::Point{3, T}, boundary::Boundary{T}) where T <: Numbe
         coo[3] - boundary.period[3] * boundary.length[3] * div(coo[3], boundary.length[3], RoundDown))
 end
 
+@inbounds function position_check3D(coord_1::Point{3, T}, coord_2::Point{3, T}, boundary::Boundary{T}, cutoff::T) where T
+
+    for mx = -boundary.period[1]:boundary.period[1]
+        for my = -boundary.period[2]:boundary.period[2]
+            for mz = -boundary.period[3]:boundary.period[3]
+                dist_sq = dist2(coord_1 + Point(mx * boundary.length[1], my * boundary.length[2], mz * boundary.length[3]), coord_2)
+                if dist_sq < abs2(cutoff)
+                    return (coord_1 + Point(mx * boundary.length[1], my * boundary.length[2], mz * boundary.length[3]), coord_2, dist_sq)
+                end
+            end
+        end
+    end
+    return (Point(zero(T), zero(T), zero(T)), Point(zero(T), zero(T), zero(T)), zero(T))
+end
+
+@inbounds function position_checkQ2D(coord_1::Point{3, T}, coord_2::Point{3, T}, boundary::Boundary{T}, cutoff::T) where T
+
+    for mx = -boundary.period[1]:boundary.period[1]
+        for my = -boundary.period[2]:boundary.period[2]
+            dist_sq = abs2(coord_1[1] + mx * boundary.length[1] - coord_2[1]) + abs2(coord_1[2] + mx * boundary.length[2] - coord_2[2])
+            if dist_sq < abs2(cutoff)
+                return (coord_1 + Point(mx * boundary.length[1], my * boundary.length[2], zero(T)), coord_2, dist_sq)
+            end
+        end
+    end
+    return (Point(zero(T), zero(T), zero(T)), Point(zero(T), zero(T), zero(T)), zero(T))
+end
+
 abstract type AbstractLogger end
 abstract type AbstractNeighborFinder end
 abstract type AbstractInteraction end
 abstract type AbstractThermoStat end
 abstract type AbstractSimulator end
 
-struct MDSys{T}
-    n_atoms::Integer
-    atoms::Vector{Atom{T}}
-    boundary::Boundary{T}
-    interactions::Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}}
-    logger::Vector{AbstractLogger}
-    simulator::AbstractSimulator
+struct MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}
+    n_atoms::Int64
+    atoms::Vector{Atom{T_NUM}}
+    boundary::Boundary{T_NUM}
+    interactions::Vector{T_INTERACTION}
+    logger::Vector{T_LOGGER}
+    simulator::T_SIMULATOR
 end
 
 function MDSys(;
-    n_atoms::TI,
-    atoms::Vector{Atom{T}},
-    boundary::Boundary{T},
-    interactions::Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}},
-    thermostat::AbstractThermoStat,
-    logger::Vector{AbstractLogger},
-    simulator::AbstractSimulator,
-) where {TI <: Integer, T}
-    return System{T}(n_atoms, atoms, boundary, interactions, thermostat, logger, simulator)
+    n_atoms::Int64,
+    atoms::Vector{Atom{T_NUM}},
+    boundary::Boundary{T_NUM},
+    interactions::Vector{T_INTERACTION},
+    logger::Vector{T_LOGGER},
+    simulator::T_SIMULATOR,
+) where {T_NUM <: Number, T_INTERACTION <: Tuple{AbstractInteraction, AbstractNeighborFinder}, T_LOGGER <: AbstractLogger, T_SIMULATOR <: AbstractSimulator}
+    return MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}(n_atoms, atoms, boundary, interactions, logger, simulator)
 end
 
 mutable struct SimulationInfo{T}
     running_step::Int64
     coords::Vector{Point{3, T}}
     velcoity::Vector{Point{3, T}}
+    acceleration::Vector{Point{3, T}}
 end
 
-function SimulationInfo(mdsys::MDSys, place::NTuple{6, T}; min_r=zero(T), max_attempts::TI=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T, TI<:Integer}
-    atoms_coords = random_position(mdsys.n_atoms, place, mdsys.boundary; min_r = min_r, max_attempts = max_attempts)
-    atoms_velocity = random_velocity(;temp = temp, atoms = mdsys.atoms, rng=rng)
-
-    return SimulationInfo{T}(zero(Int64), atoms_coords, atoms_velocity)
+function SimulationInfo(n_atoms::TI, atoms::Vector{Atom{T}}, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::TI=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T, TI<:Integer}
+    atoms_coords = random_position(n_atoms, place, boundary; min_r = min_r, max_attempts = max_attempts)
+    atoms_velocity = random_velocity(;temp = temp, atoms = atoms, rng=rng)
+    acceleration = [Point(zero(T), zero(T), zero(T)) for _=1:n_atoms]
+    return SimulationInfo{T}(zero(Int64), atoms_coords, atoms_velocity, acceleration)
 end
 
 struct NoThermoStat <: AbstractThermoStat
@@ -100,3 +129,30 @@ struct NoThermoStat <: AbstractThermoStat
 end
 
 NoThermoStat() = NoThermoStat(true)
+
+function thermostat_update!(thermostat::NoThermoStat, sys::MDSys{T}, info::SimulationInfo{T}) where T <: Number
+    return nothing
+end
+
+struct NoNeighborFinder{T} <: AbstractNeighborFinder
+    neighborlist::Vector{Tuple{Int64, Int64, T}}
+end
+
+NoNeighborFinder(n_atoms::TI, T::Type = Float64) where {TI <: Integer} = NoNeighborFinder{T}([(i, j, zero(T)) for i in 1:n_atoms - 1 for j in i+1:n_atoms])
+
+function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: NoNeighborFinder}
+    return nothing
+end
+
+
+
+struct NoInteraction <: AbstractInteraction
+    nointeaction::Bool
+end
+
+NoInteraction() = NoInteraction(true)
+
+function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, atoms::Vector{Atom{T}}, boundary::Boundary{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
+    return nothing
+end
+

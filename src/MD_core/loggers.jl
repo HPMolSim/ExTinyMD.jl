@@ -19,7 +19,7 @@ PressureLogger{T}(step::TI) where{TI<:Integer, T<:Number} = PressureLogger{T}(st
 
 
 # this function is used to record temparture
-function record!(logger::TempartureLogger, sys::MDSys{T}, info::SimulationInfo{T}) where T
+function record!(logger::TempartureLogger, sys::MDSys{T, T_INTERACTION, T_LOGGER, T_SIMULATOR}, info::SimulationInfo{T}) where {T, T_INTERACTION, T_LOGGER, T_SIMULATOR}
     if iszero(info.running_step % logger.step)
         Ek = sum([0.5 * sys.atoms[i].mass * sum(abs2, info.velcoity[i]) for i in 1:sys.n_atoms])
         temparture = 2.0 * Ek / (3.0 * sys.n_atoms)

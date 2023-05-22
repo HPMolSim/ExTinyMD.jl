@@ -7,7 +7,7 @@ end
 
 AndersenThermoStat(tempature::T, ν::T) where{T<:Number} = AndersenThermoStat{T}(tempature, ν)
 
-function thermostat_update!(thermostat::AndersenThermoStat{T}, sys::MDSys{T}, info::SimulationInfo{T}) where T <: Number
+@inbounds function thermostat_update!(thermostat::AndersenThermoStat{T}, sys::MDSys{T, T_INTERACTION, T_LOGGER, T_SIMULATOR}, info::SimulationInfo{T}) where {T <: Number, T_INTERACTION, T_LOGGER, T_SIMULATOR}
     sampling = rand(T, sys.n_atoms)
     for i in 1:sys.n_atoms
         if sampling[i] < thermostat.ν * sys.simulator.dt
