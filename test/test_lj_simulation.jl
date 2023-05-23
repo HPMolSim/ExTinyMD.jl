@@ -1,4 +1,4 @@
-using Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, BenchmarkTools
+using Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML
 
 include("../src/types.jl")
 include("../src/MD_core/system_init.jl")
