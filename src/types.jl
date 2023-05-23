@@ -103,7 +103,7 @@ struct MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}
     atoms::Vector{Atom{T_NUM}}
     boundary::Boundary{T_NUM}
     interactions::Vector{T_INTERACTION}
-    logger::Vector{T_LOGGER}
+    loggers::Vector{T_LOGGER}
     simulator::T_SIMULATOR
 end
 
@@ -112,10 +112,10 @@ function MDSys(;
     atoms::Vector{Atom{T_NUM}},
     boundary::Boundary{T_NUM},
     interactions::Vector{T_INTERACTION},
-    logger::Vector{T_LOGGER},
+    loggers::Vector{T_LOGGER},
     simulator::T_SIMULATOR,
 ) where {T_NUM <: Number, T_INTERACTION <: Tuple{AbstractInteraction, AbstractNeighborFinder}, T_LOGGER <: AbstractLogger, T_SIMULATOR <: AbstractSimulator}
-    return MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}(n_atoms, atoms, boundary, interactions, logger, simulator)
+    return MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}(n_atoms, atoms, boundary, interactions, loggers, simulator)
 end
 
 mutable struct SimulationInfo{T}
