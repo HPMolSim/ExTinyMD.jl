@@ -1,4 +1,4 @@
-export Point, Atom, Boundary, Q2dBoudary, MDsys, position_check3D, position_checkQ2D
+export Point, Atom, Boundary, Q2dBoudary, MDsys, position_check3D, position_checkQ2D, BoundaryCheck!
 
 struct Point{N,T}
     coo::NTuple{N,T}
@@ -49,12 +49,20 @@ function CubicBoundary(L::T) where T
     return Boundary((L, L, L), (1, 1, 1))
 end
 
-function BoundaryCheck(coo::Point{3, T}, boundary::Boundary{T}) where T <: Number
-    return Point(
-        coo[1] - boundary.period[1] * boundary.length[1] * div(coo[1], boundary.length[1], RoundDown), 
-        coo[2] - boundary.period[2] * boundary.length[2] * div(coo[2], boundary.length[2], RoundDown), 
-        coo[3] - boundary.period[3] * boundary.length[3] * div(coo[3], boundary.length[3], RoundDown))
+
+function BoundaryCheck!(coords::Vector{Point{3, T}}, boundary::Boundary{T}) where T <: Number
+    Lx, Ly, Lz = boundary.length
+    px, py, pz = boundary.period
+    for i in 1:length(coords)
+        coords[i] -= Point(
+            ((coords[i][1]>zero(T) && coords[i][1]<Lx) || iszero(px)) ? zero(T) : Lx * div(coords[i][1], Lx, RoundDown),
+            ((coords[i][2]>zero(T) && coords[i][2]<Ly) || iszero(py)) ? zero(T) : Ly * div(coords[i][2], Ly, RoundDown),
+            ((coords[i][3]>zero(T) && coords[i][3]<Lz) || iszero(pz)) ? zero(T) : Lz * div(coords[i][3], Lz, RoundDown)
+        )
+    end
+    return nothing
 end
+
 
 @inbounds function position_check3D(coord_1::Point{3, T}, coord_2::Point{3, T}, boundary::Boundary{T}, cutoff::T) where T
 
@@ -134,6 +142,7 @@ function thermostat_update!(thermostat::NoThermoStat, sys::MDSys{T}, info::Simul
     return nothing
 end
 
+
 struct NoNeighborFinder{T} <: AbstractNeighborFinder
     neighborlist::Vector{Tuple{Int64, Int64, T}}
 end
@@ -152,7 +161,7 @@ end
 
 NoInteraction() = NoInteraction(true)
 
-function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, atoms::Vector{Atom{T}}, boundary::Boundary{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
+function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, atoms::Vector{Atom{T}}, boundary::Boundary{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
     return nothing
 end
 
