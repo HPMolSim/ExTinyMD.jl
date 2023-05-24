@@ -1,4 +1,4 @@
-export TempartureLogger
+export TempartureLogger, record!
 
 mutable struct TempartureLogger{T, TI} <: AbstractLogger
     step::TI

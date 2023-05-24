@@ -1,4 +1,4 @@
-export CellList3D, CellList2D, PointToStaticArrays3D!, PointToStaticArrays2D!
+export CellList3D, CellList2D, PointToStaticArrays3D!, PointToStaticArrays2D!, CellListDir3D, update_finder!
 
 mutable struct CellList3D{T, TI} <: AbstractNeighborFinder
     cell_list::InPlaceNeighborList{Box{OrthorhombicCell, 3, T, T, 9, T}, CellList{3, T}, CellListMap.AuxThreaded{3, T}, CellListMap.NeighborList{T}}
@@ -6,6 +6,7 @@ mutable struct CellList3D{T, TI} <: AbstractNeighborFinder
     coords::Vector{SVector{3, T}}
     update_steps::TI
 end
+
 
 function CellList3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, update_steps::TI) where {T<:Number, TI<:Integer}
     coords = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.coords]
@@ -66,6 +67,33 @@ end
 function PointToStaticArrays2D!(x_new::Vector{Point{3, T}}, x_old::Vector{SVector{2, T}}) where T
     @inbounds for i in 1:length(x_new)
         x_old[i] = SVector{2, T}(x_new[i][1], x_new[i][2])
+    end
+    return nothing
+end
+
+mutable struct CellListDir3D{T, TI} <: AbstractNeighborFinder
+    unitcell::SVector{3, T}
+    cutoff::T
+    neighbor_list::Vector{Tuple{Int64, Int64, T}}
+    coords::Vector{SVector{3, T}}
+    update_steps::TI
+end
+
+
+function CellListDir3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, update_steps::TI) where {T<:Number, TI<:Integer}
+    coords = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.coords]
+
+    # if the system is non-periodic in some direction, set the unitcell length at that direction as 2 L_max so that no periodic images will be counted
+    unitcell = SVector{3, T}([isone(boundary.period[i]) ? boundary.length[i] : T(1.5) * maximum(boundary.length) for i in 1:3])
+    neighbor_list = neighborlist(coords, cutoff; unitcell = unitcell, parallel = false)
+
+    return CellListDir3D{T, TI}(unitcell, cutoff, neighbor_list, coords, update_steps)
+end
+
+function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: CellListDir3D}
+    if isone(info.running_step % neighborfinder.update_steps)
+        PointToStaticArrays3D!(info.coords, neighborfinder.coords)
+        neighborfinder.neighbor_list = neighborlist(neighborfinder.coords, neighborfinder.cutoff; unitcell = neighborfinder.unitcell, parallel = false)
     end
     return nothing
 end

@@ -1,4 +1,4 @@
-export VerletProcess, info_update!
+export VerletProcess, info_update!, info_update_once!
 
 struct VerletProcess{T_DT, T_THERMO} <: AbstractSimulator
     dt::T_DT
