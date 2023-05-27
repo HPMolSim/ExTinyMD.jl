@@ -19,7 +19,7 @@ VerletProcess(; dt::T_DT, thermostat::T_THERMO = NoThermoStat()) where {T_DT<:Nu
     
     # step one v(t + dt/2) = v(t - dt/2) + a(t) dt
     for i in 1:num_inteactoin
-        update_acceleration!(sys.interactions[i][1], sys.interactions[i][2], sys.atoms, sys.boundary, info)
+        update_acceleration!(sys.interactions[i][1], sys.interactions[i][2], sys, info)
     end
 
     info.velcoity .+= info.acceleration .* dt
@@ -45,7 +45,7 @@ end
         
         # step one v(t + dt/2) = v(t - dt/2) + a(t) dt
         for i in 1:num_inteactoin
-            update_acceleration!(sys.interactions[i][1], sys.interactions[i][2], sys.atoms, sys.boundary, info)
+            update_acceleration!(sys.interactions[i][1], sys.interactions[i][2], sys, info)
         end
 
         info.velcoity .+= info.acceleration .* dt
