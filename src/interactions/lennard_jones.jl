@@ -1,4 +1,4 @@
-export LennardJones, acceleration
+export LennardJones, update_acceleration!
 
 struct LennardJones{T} <: AbstractInteraction
     ϵ::T

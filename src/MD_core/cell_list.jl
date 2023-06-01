@@ -79,7 +79,6 @@ mutable struct CellListDir3D{T, TI} <: AbstractNeighborFinder
     update_steps::TI
 end
 
-
 function CellListDir3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, update_steps::TI) where {T<:Number, TI<:Integer}
     coords = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.coords]
 
