@@ -1,4 +1,4 @@
-export Point, Atom, Boundary, Q2dBoudary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, NoNeighborFinder, NoThermoStat, dist2
+export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, NoNeighborFinder, NoThermoStat, dist2
 
 struct Point{N,T}
     coo::NTuple{N,T}
@@ -41,7 +41,7 @@ function Boundary(L::NTuple{3, T}, period_set::NTuple{3, Char}) where T
     error("Illegale Input!")
 end
 
-function Q2dBoudary(Lx::T, Ly::T, Lz::T) where T
+function Q2dBoundary(Lx::T, Ly::T, Lz::T) where T
     return Boundary((Lx, Ly, Lz), (1, 1, 0))
 end
 
@@ -83,7 +83,7 @@ end
 
     for mx = -boundary.period[1]:boundary.period[1]
         for my = -boundary.period[2]:boundary.period[2]
-            dist_sq = abs2(coord_1[1] + mx * boundary.length[1] - coord_2[1]) + abs2(coord_1[2] + mx * boundary.length[2] - coord_2[2])
+            dist_sq = abs2(coord_1[1] + mx * boundary.length[1] - coord_2[1]) + abs2(coord_1[2] + my * boundary.length[2] - coord_2[2])
             if dist_sq < abs2(cutoff)
                 return (coord_1 + Point(mx * boundary.length[1], my * boundary.length[2], zero(T)), coord_2, dist_sq)
             end
@@ -161,7 +161,7 @@ end
 
 NoInteraction() = NoInteraction(true)
 
-function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, atoms::Vector{Atom{T}}, boundary::Boundary{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
+function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
     return nothing
 end
 

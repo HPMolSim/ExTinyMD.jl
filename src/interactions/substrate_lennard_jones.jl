@@ -10,7 +10,9 @@ end
 
 SubLennardJones(sub_down::T, sub_up::T;ϵ::T = 1.0, cutoff::T = 3.5, σ::T = 1.0) where T<:Number = SubLennardJones(ϵ, cutoff, σ, sub_down, sub_up)
 
-function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::SubNeighborFinder{T, TI}, atoms::Vector{Atom{T}}, boundary::Boundary{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
+function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::SubNeighborFinder{T, TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
+    atoms = sys.atoms
+    update_finder!(neighborfinder, info)
     for i in neighborfinder.down_neighbor
         dz = info.coords[i][3] - interaction.sub_down
         if zero(T) < dz < interaction.cutoff

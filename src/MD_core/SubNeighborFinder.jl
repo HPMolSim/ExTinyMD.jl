@@ -1,6 +1,6 @@
 export SubNeighborFinder, update_finder!
 
-mutable struct SubNeighborFinder{T, TI}
+mutable struct SubNeighborFinder{T, TI} <: AbstractNeighborFinder
     cutoff::T
     update_steps::TI
     sub_down::T
@@ -32,11 +32,17 @@ function update_finder!(neighborfinder::SubNeighborFinder{T, TI}, info::Simulati
         neighborfinder.down_neighbor = Vector{T}()
         for i in 1:n_atoms
             z_i = info.coords[i][3]
-            if zero(T) < z_i - neighborfinder.sub_down < neighborfinder.cutoff
+            dz_down = z_i - neighborfinder.sub_down
+            if zero(T) < dz_down < neighborfinder.cutoff
                 push!(neighborfinder.down_neighbor, i)
+            elseif dz_down < 0
+                error("particle out of substrate")
             end
-            if zero(T) < neighborfinder.sub_up - z_i < neighborfinder.cutoff
+            dz_up = neighborfinder.sub_up - z_i
+            if zero(T) < dz_up < neighborfinder.cutoff
                 push!(neighborfinder.up_neighbor, i)
+            elseif dz_up < 0
+                error("particle out of substrate")
             end
         end
     end
