@@ -1,4 +1,4 @@
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, Plots
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, Plots, DelimitedFiles
 
 include("../src/types.jl")
 

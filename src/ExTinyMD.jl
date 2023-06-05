@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, Plots
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, Plots, DelimitedFiles
 
 
 include("types.jl")
@@ -13,8 +13,10 @@ include("MD_core/loggers.jl")
 include("MD_core/Verlet.jl")
 include("MD_core/simulator.jl")
 include("MD_core/cell_list.jl")
+include("MD_core/SubNeighborFinder.jl")
 
 # this part will be about the interactions
 include("interactions/lennard_jones.jl")
+include("interactions/substrate_lennard_jones.jl")
 
 end

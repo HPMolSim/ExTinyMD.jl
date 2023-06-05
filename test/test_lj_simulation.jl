@@ -3,7 +3,7 @@ n_atoms = 1000
 n_atoms = Int64(round(n_atoms))
 ρ = 1000 / (100.0)^3
 L = (n_atoms / ρ)^(1/3)
-boundary = Q2dBoudary(L, L, L)
+boundary = Q2dBoundary(L, L, L)
 atoms = Vector{Atom{Float64}}()
 
 for i in 1:n_atoms
@@ -16,7 +16,8 @@ interactions = [(LennardJones(), CellListDir3D(info, 4.5, boundary, 100)), (SubL
 
 # interactions = [(SubLennardJones(0.0, L; cutoff = 1.0, σ = 0.5), SubNeighborFinder(1.5, info.coords, 0.0, L))]
 
-loggers = [TempartureLogger(100)]
+loggers = [TempartureLogger(100), TrajectionLogger(info, 1000)]
+# loggers = [TempartureLogger(100)]
 simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
 
 sys = MDSys(
@@ -29,5 +30,5 @@ sys = MDSys(
 )
 @show (n_atoms, L)
 simulate!(simulator, sys, info, 1)
-@time simulate!(simulator, sys, info, 1000000)
+@time simulate!(simulator, sys, info, 10000)
 # end
