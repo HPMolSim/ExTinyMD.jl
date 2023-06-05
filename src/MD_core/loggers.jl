@@ -48,8 +48,11 @@ function record!(logger::TempartureLogger{T, TI}, sys::MDSys{T}, info::Simulatio
             Ek += 0.5 * sys.atoms[i].mass * sum(abs2, info.velcoity[i])
         end
         temparture = T(2.0 * Ek / (3.0 * sys.n_atoms))
-
         push!(logger.data, temparture)
+
+        IO_tempature = open("temparture.txt", "a")
+        writedlm(IO_tempature, temparture)
+        close(IO_tempature)
     end
     return nothing
 end
