@@ -97,7 +97,7 @@ function update_finder!(neighborfinder::CellListDir3D{T, TI}, info::SimulationIn
     return nothing
 end
 
-mutable struct CellListDirQ2D{T, TI}
+mutable struct CellListDirQ2D{T, TI} <: AbstractNeighborFinder
     unitcell::SVector{2, T}
     cutoff::T
     neighbor_list::Vector{Tuple{Int64, Int64, T}}
@@ -117,7 +117,7 @@ end
 
 function update_finder!(neighborfinder::CellListDirQ2D{T, TI}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
     if isone(info.running_step % neighborfinder.update_steps)
-        PointToStaticArraysQ2D!(info.coords, neighborfinder.coords)
+        PointToStaticArrays2D!(info.coords, neighborfinder.coords)
         neighborfinder.neighbor_list = neighborlist(neighborfinder.coords, neighborfinder.cutoff; unitcell = neighborfinder.unitcell, parallel = false)
     end
     return nothing

@@ -19,7 +19,13 @@ struct TrajectionLogger{TI, T} <: AbstractLogger
 end
 
 
-TempartureLogger(step::TI) where{TI<:Integer} = TempartureLogger{Float64, TI}(step, Vector{Float64}())
+# TempartureLogger(step::TI) where{TI<:Integer} = TempartureLogger{Float64, TI}(step, Vector{Float64}())
+
+function TempartureLogger(step::TI) where{TI<:Integer}
+    f = open("temparture.txt", "w")
+    close(f)
+    return TempartureLogger{Float64, TI}(step, Vector{Float64}())
+end
 TempartureLogger{T}(step::TI) where{TI<:Integer, T<:Number} = TempartureLogger{T, TI}(step, Vector{T}())
 
 PressureLogger(step::TI) where{TI<:Integer} = PressureLogger{Float64}(step, Vector{Float64}())
@@ -60,7 +66,7 @@ end
 function record!(logger::TrajectionLogger{TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
     if iszero(info.running_step % logger.step)
         PointToStaticArrays3D!(info.coords, logger.position)
-        PointToStaticArrays3D!(info.coords, logger.velocity)
+        PointToStaticArrays3D!(info.velcoity, logger.velocity)
 
         IO_position = open(logger.position_file, "a")
         writedlm(IO_position, info.running_step)
