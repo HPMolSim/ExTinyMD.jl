@@ -21,5 +21,6 @@ include("interactions/substrate_lennard_jones.jl")
 
 # Tools
 include("Tools/DataLoader.jl")
+include("Tools/rdf.jl")
 
 end

@@ -1,6 +1,6 @@
 export read_trajection
 
-function read_trajection(filename::String)
+function read_trajection(filename::String, n_atoms::T) where{T<:Integer}
     # 打开文件
     f = open(filename)
 
@@ -11,8 +11,8 @@ function read_trajection(filename::String)
     while !eof(f)
         # 读取第一行数字
         readline(f)
-        
-        num = 436
+
+        num = n_atoms
         # 读取矩阵
         matrix = zeros(num, 3)
         for i in 1:num
