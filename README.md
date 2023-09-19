@@ -12,7 +12,8 @@ Currectly, to use this package, you have to clone this repo onto you machine and
 git clone git@github.com:ArrogantGao/ExTinyMD.jl.git
 cd ExTinyMD.jl
 julia
-]add .
+]activate .
+add .
 ```
 
 Here is an simple example, which will simulate a 3D LJ fluid and plot it rdf:
