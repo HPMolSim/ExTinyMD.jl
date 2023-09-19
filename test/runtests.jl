@@ -2,6 +2,6 @@ using ExTinyMD
 using Test
 
 @testset "ExTinyMD.jl" begin
-    include("test_lj_simulation.jl")
-    # include("test_rdf_lj")
+    include("test_simulation.jl")
+    # include("test_neighbor.jl")
 end

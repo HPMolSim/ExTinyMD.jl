@@ -3,11 +3,13 @@ export TempartureLogger, record!, TrajectionLogger
 mutable struct TempartureLogger{T, TI} <: AbstractLogger
     step::TI
     data::Vector{T}
+    output::Bool
 end
 
 mutable struct PressureLogger{T, TI} <: AbstractLogger
     step::TI
     data::Vector{T}
+    output::Bool
 end
 
 struct TrajectionLogger{TI, T} <: AbstractLogger 
@@ -16,39 +18,43 @@ struct TrajectionLogger{TI, T} <: AbstractLogger
     velocity_file::String
     position::Vector{SVector{3, T}}
     velocity::Vector{SVector{3, T}}
+    output::Bool
 end
 
 
 # TempartureLogger(step::TI) where{TI<:Integer} = TempartureLogger{Float64, TI}(step, Vector{Float64}())
 
-function TempartureLogger(step::TI) where{TI<:Integer}
-    f = open("temparture.txt", "w")
-    close(f)
-    return TempartureLogger{Float64, TI}(step, Vector{Float64}())
+function TempartureLogger(step::TI; output::Bool = true) where{TI<:Integer}
+    if output
+        f = open("temparture.txt", "w")
+        close(f)
+    end
+    return TempartureLogger{Float64, TI}(step, Vector{Float64}(), output)
 end
-TempartureLogger{T}(step::TI) where{TI<:Integer, T<:Number} = TempartureLogger{T, TI}(step, Vector{T}())
+TempartureLogger{T}(step::TI; output::Bool = true) where{TI<:Integer, T<:Number} = TempartureLogger{T, TI}(step, Vector{T}(), output)
 
-PressureLogger(step::TI) where{TI<:Integer} = PressureLogger{Float64}(step, Vector{Float64}())
-PressureLogger{T}(step::TI) where{TI<:Integer, T<:Number} = PressureLogger{T}(step, Vector{T}())
+PressureLogger(step::TI; output::Bool = true) where{TI<:Integer} = PressureLogger{Float64}(step, Vector{Float64}(), output)
+PressureLogger{T}(step::TI; output::Bool = true) where{TI<:Integer, T<:Number} = PressureLogger{T}(step, Vector{T}(), output)
 
-function TrajectionLogger(info::SimulationInfo{T}, step::TI) where{T<:Number, TI<:Integer}
+function TrajectionLogger(info::SimulationInfo{T}, step::TI; output::Bool = true) where{T<:Number, TI<:Integer}
     position_file = "position.txt"
     velocity_file = "velocity.txt"
-
-    # if there is already a file used to store the result, refresh them
-    f = open(position_file, "w")
-    close(f)
-    f = open(velocity_file, "w")
-    close(f)
+    if output
+        # if there is already a file used to store the result, refresh them
+        f = open(position_file, "w")
+        close(f)
+        f = open(velocity_file, "w")
+        close(f)
+    end
 
     position = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.coords]
     velocity = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.velcoity]
-    return TrajectionLogger{TI, T}(step, position_file, velocity_file, position, velocity)
+    return TrajectionLogger{TI, T}(step, position_file, velocity_file, position, velocity, output)
 end
 
 # this function is used to record temparture
 function record!(logger::TempartureLogger{T, TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
-    if iszero(info.running_step % logger.step)
+    if iszero(info.running_step % logger.step) && logger.output
         Ek = zero(T)
         for i in 1:sys.n_atoms
             Ek += 0.5 * sys.atoms[i].mass * sum(abs2, info.velcoity[i])
@@ -64,7 +70,7 @@ function record!(logger::TempartureLogger{T, TI}, sys::MDSys{T}, info::Simulatio
 end
 
 function record!(logger::TrajectionLogger{TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
-    if iszero(info.running_step % logger.step)
+    if iszero(info.running_step % logger.step) && logger.output
         PointToStaticArrays3D!(info.coords, logger.position)
         PointToStaticArrays3D!(info.velcoity, logger.velocity)
 
