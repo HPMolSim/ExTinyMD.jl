@@ -22,3 +22,10 @@ test = ["Test"]
 
 [compat]
 julia = "1.6"
+BenchmarkTools = "1"
+CellListMap = "0.8"
+DelimitedFiles = "1"
+Distributions = "0"
+Plots = "1"
+StatProfilerHTML = "1"
+StaticArrays = "1"
