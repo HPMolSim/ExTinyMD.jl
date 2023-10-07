@@ -1,4 +1,4 @@
-export CellList3D, CellList2D, CellListDir3D, update_finder!, CellListDirQ2D
+export CellList3D, CellList2D, CellListDir3D, update_finder!, CellListDirQ2D, CellListQ2D
 
 mutable struct CellList3D{T, TI} <: AbstractNeighborFinder
     cell_list::InPlaceNeighborList{Box{OrthorhombicCell, 3, T, T, 9, T}, CellList{3, T}, CellListMap.AuxThreaded{3, T}, CellListMap.NeighborList{T}}
@@ -20,7 +20,7 @@ function CellList3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, u
 end
 
 function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: CellList3D}
-    if isone(info.running_step % neighborfinder.update_steps)
+    if iszero(info.running_step % neighborfinder.update_steps)
         coords = [SVector{3, T}(p_info.position[1], p_info.position[2], p_info.position[3]) for p_info in info.particle_info]
         update!(neighborfinder.cell_list, coords)
         neighborfinder.neighbor_list = neighborlist!(neighborfinder.cell_list)
@@ -40,17 +40,18 @@ function CellListQ2D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, 
     # if the system is non-periodic in some direction, set the unitcell length at that direction as 2 L_max so that no periodic images will be counted
     unitcell = SVector{2, T}([isone(boundary.period[i]) ? boundary.length[i] : T(1.5) * maximum(boundary.length) for i in 1:2])
     cell_list = InPlaceNeighborList(x = coords, cutoff = cutoff, unitcell = unitcell, parallel=true)
-    update!(cell_list, coords)
     neighbor_list = neighborlist!(cell_list)
 
     return CellListQ2D{T, TI}(cell_list, neighbor_list, update_steps)
 end
 
 function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: CellListQ2D}
-
-    coords = [SVector{2, T}(p_info.position[1], p_info.position[2]) for p_info in info.particle_info]
-    update!(neighborfinder.cell_list, coords)
-    neighborfinder.neighbor_list = neighborlist!(neighborfinder.cell_list)
+    
+    if iszero(info.running_step % neighborfinder.update_steps)
+        coords = [SVector{2, T}(p_info.position[1], p_info.position[2]) for p_info in info.particle_info]
+        update!(neighborfinder.cell_list, coords)
+        neighborfinder.neighbor_list = neighborlist!(neighborfinder.cell_list)
+    end
     return nothing
 end
 
@@ -72,7 +73,7 @@ function CellListDir3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}
 end
 
 function update_finder!(neighborfinder::CellListDir3D{T, TI}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
-    if isone(info.running_step % neighborfinder.update_steps)
+    if iszero(info.running_step % neighborfinder.update_steps)
         coords = [SVector{3, T}(p_info.position[1], p_info.position[2], p_info.position[3]) for p_info in info.particle_info]
         neighborfinder.neighbor_list = neighborlist(coords, neighborfinder.cutoff; unitcell = neighborfinder.unitcell, parallel = false)
     end
@@ -97,7 +98,7 @@ function CellListDirQ2D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T
 end
 
 function update_finder!(neighborfinder::CellListDirQ2D{T, TI}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
-    if isone(info.running_step % neighborfinder.update_steps)
+    if iszero(info.running_step % neighborfinder.update_steps)
         coords = [SVector{2, T}(p_info.position[1], p_info.position[2]) for p_info in info.particle_info]
         neighborfinder.neighbor_list = neighborlist(coords, neighborfinder.cutoff; unitcell = neighborfinder.unitcell, parallel = true)
     end
