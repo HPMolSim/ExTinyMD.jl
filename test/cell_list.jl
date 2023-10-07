@@ -27,7 +27,6 @@
     end
 end
 
-# there are still some bugs in CellListMap.jl, so this test is not working and commented, see (https://github.com/m3g/CellListMap.jl/issues/86).
 # @testset "test the cell list Q2D" begin
 #     n_atoms = 100
 #     n_atoms = Int64(round(n_atoms))
