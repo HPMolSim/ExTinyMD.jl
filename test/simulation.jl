@@ -15,10 +15,7 @@
 
     interactions = [(LennardJones(), CellListDir3D(info, 4.5, boundary, 100)), (SubLennardJones(0.0, L; cutoff = 1.0, σ = 0.5), SubNeighborFinder(1.5, info, 0.0, L))]
 
-    # interactions = [(SubLennardJones(0.0, L; cutoff = 1.0, σ = 0.5), SubNeighborFinder(1.5, info.coords, 0.0, L))]
-
-    loggers = [TempartureLogger(100, output = true), TrajectionLogger(step = 100, output = true)]
-    # loggers = [TempartureLogger(100)]
+    loggers = [TempartureLogger(100, output = false), TrajectionLogger(step = 100, output = false)]
     simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
 
     sys = MDSys(
