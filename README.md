@@ -8,15 +8,12 @@
 `ExTinyMD.jl` for Extremely Tiny Molecular Dynamic is a simple package for MD simulations based on `julia`.
 
 Currectly, to use this package, you have to clone this repo onto you machine and manually add it.
-```
-git clone git@github.com:ArrogantGao/ExTinyMD.jl.git
-cd ExTinyMD.jl
-julia
-]add .
+```julia
+pkg> add ExTinyMD
 ```
 
 Here is an simple example, which will simulate a 3D LJ fluid and plot it rdf:
-```
+```julia
 using ExTinyMD, Plots
 
 begin
