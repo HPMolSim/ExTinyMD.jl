@@ -9,7 +9,7 @@
 ## Getting Started
 
 You can simple type `]` to enter the package in Julia REPL and type
-```
+```julia
 pkg> add ExTinyMD
 ```
 to install the package.
