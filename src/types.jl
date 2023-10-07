@@ -19,11 +19,12 @@ dist2(x::Point, y::Point) = sum(abs2, x - y)
 
 
 struct Atom{T}
+    type::Int
     mass::T
     charge::T
 end
 
-Atom(;mass::T, charge::T) where T<:Number = Atom{T}(mass, charge)
+Atom(;type::Int = 1, mass::T = 1.0, charge::T = 0.0) where T<:Number = Atom{T}(type, mass, charge)
 
 struct Boundary{T}
     length::NTuple{3, T}
@@ -49,15 +50,99 @@ function CubicBoundary(L::T) where T
     return Boundary((L, L, L), (1, 1, 1))
 end
 
+abstract type AbstractLogger end
+abstract type AbstractNeighborFinder end
+abstract type AbstractInteraction end
+abstract type AbstractThermoStat end
+abstract type AbstractSimulator end
 
-function BoundaryCheck!(coords::Vector{Point{3, T}}, boundary::Boundary{T}) where T <: Number
+struct MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}
+    n_atoms::Int64
+    atoms::Vector{Atom{T_NUM}}
+    boundary::Boundary{T_NUM}
+    interactions::Vector{T_INTERACTION}
+    loggers::Vector{T_LOGGER}
+    simulator::T_SIMULATOR
+end
+
+function MDSys(;
+    n_atoms::Int64,
+    atoms::Vector{Atom{T_NUM}},
+    boundary::Boundary{T_NUM},
+    interactions::Vector{T_INTERACTION},
+    loggers::Vector{T_LOGGER},
+    simulator::T_SIMULATOR,
+) where {T_NUM <: Number, T_INTERACTION <: Tuple{AbstractInteraction, AbstractNeighborFinder}, T_LOGGER <: AbstractLogger, T_SIMULATOR <: AbstractSimulator}
+    return MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}(n_atoms, atoms, boundary, interactions, loggers, simulator)
+end
+
+mutable struct PatricleInfo{T}
+    id::Int
+    position::Point{3, T}
+    velocity::Point{3, T}
+    acceleration::Point{3, T}
+end
+
+mutable struct SimulationInfo{T}
+    running_step::Int64
+    particle_info::Vector{PatricleInfo{T}}
+    id_dict::Dict{Int, Int}
+end
+
+function SimulationInfo(n_atoms::Int, atoms::Vector{Atom{T}}, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::Int=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T}
+    positions = random_position(n_atoms, place, boundary; min_r = min_r, max_attempts = max_attempts)
+    velocities = random_velocity(;temp = temp, atoms = atoms, rng=rng)
+    accelerations = [Point(zero(T), zero(T), zero(T)) for _=1:n_atoms]
+    particle_info = [PatricleInfo(id, positions[id], velocities[id], accelerations[id]) for id in 1:n_atoms]
+
+    dict_vec = Vector{Tuple{Int, Int}}()
+    for i in 1:n_atoms
+        id = particle_info[i].id
+        push!(dict_vec, (id, i))
+    end
+    id_dict = Dict(dict_vec)
+
+    return SimulationInfo{T}(zero(Int64), particle_info, id_dict)
+end
+
+struct NoThermoStat <: AbstractThermoStat
+    nostat::Bool
+end
+NoThermoStat() = NoThermoStat(true)
+
+function thermostat_update!(thermostat::NoThermoStat, sys::MDSys{T}, info::SimulationInfo{T}) where T <: Number
+    return nothing
+end
+
+
+struct NoNeighborFinder{T} <: AbstractNeighborFinder
+    neighborlist::Vector{Tuple{Int64, Int64, T}}
+end
+NoNeighborFinder(n_atoms::TI, T::Type = Float64) where {TI <: Integer} = NoNeighborFinder{T}([(i, j, zero(T)) for i in 1:n_atoms - 1 for j in i+1:n_atoms])
+
+function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: NoNeighborFinder}
+    return nothing
+end
+
+
+
+struct NoInteraction <: AbstractInteraction
+    nointeaction::Bool
+end
+NoInteraction() = NoInteraction(true)
+
+function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
+    return nothing
+end
+
+function BoundaryCheck!(simulation_info::SimulationInfo, boundary::Boundary{T}) where T <: Number
     Lx, Ly, Lz = boundary.length
     px, py, pz = boundary.period
-    for i in 1:length(coords)
-        coords[i] -= Point(
-            ((coords[i][1]>zero(T) && coords[i][1]<Lx) || iszero(px)) ? zero(T) : Lx * div(coords[i][1], Lx, RoundDown),
-            ((coords[i][2]>zero(T) && coords[i][2]<Ly) || iszero(py)) ? zero(T) : Ly * div(coords[i][2], Ly, RoundDown),
-            ((coords[i][3]>zero(T) && coords[i][3]<Lz) || iszero(pz)) ? zero(T) : Lz * div(coords[i][3], Lz, RoundDown)
+    for p_info in simulation_info.particle_info
+        p_info.position -= Point(
+            ((zero(T) < p_info.position[1] < Lx) || iszero(px)) ? zero(T) : Lx * div(p_info.position[1], Lx, RoundDown),
+            ((zero(T) < p_info.position[2] < Ly) || iszero(py)) ? zero(T) : Ly * div(p_info.position[2], Ly, RoundDown),
+            ((zero(T) < p_info.position[3] < Lz) || iszero(pz)) ? zero(T) : Lz * div(p_info.position[3], Lz, RoundDown)
         )
     end
     return nothing
@@ -91,77 +176,3 @@ end
     end
     return (Point(zero(T), zero(T), zero(T)), Point(zero(T), zero(T), zero(T)), zero(T))
 end
-
-abstract type AbstractLogger end
-abstract type AbstractNeighborFinder end
-abstract type AbstractInteraction end
-abstract type AbstractThermoStat end
-abstract type AbstractSimulator end
-
-struct MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}
-    n_atoms::Int64
-    atoms::Vector{Atom{T_NUM}}
-    boundary::Boundary{T_NUM}
-    interactions::Vector{T_INTERACTION}
-    loggers::Vector{T_LOGGER}
-    simulator::T_SIMULATOR
-end
-
-function MDSys(;
-    n_atoms::Int64,
-    atoms::Vector{Atom{T_NUM}},
-    boundary::Boundary{T_NUM},
-    interactions::Vector{T_INTERACTION},
-    loggers::Vector{T_LOGGER},
-    simulator::T_SIMULATOR,
-) where {T_NUM <: Number, T_INTERACTION <: Tuple{AbstractInteraction, AbstractNeighborFinder}, T_LOGGER <: AbstractLogger, T_SIMULATOR <: AbstractSimulator}
-    return MDSys{T_NUM, T_INTERACTION, T_LOGGER, T_SIMULATOR}(n_atoms, atoms, boundary, interactions, loggers, simulator)
-end
-
-mutable struct SimulationInfo{T}
-    running_step::Int64
-    coords::Vector{Point{3, T}}
-    velcoity::Vector{Point{3, T}}
-    acceleration::Vector{Point{3, T}}
-end
-
-function SimulationInfo(n_atoms::TI, atoms::Vector{Atom{T}}, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::TI=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T, TI<:Integer}
-    atoms_coords = random_position(n_atoms, place, boundary; min_r = min_r, max_attempts = max_attempts)
-    atoms_velocity = random_velocity(;temp = temp, atoms = atoms, rng=rng)
-    acceleration = [Point(zero(T), zero(T), zero(T)) for _=1:n_atoms]
-    return SimulationInfo{T}(zero(Int64), atoms_coords, atoms_velocity, acceleration)
-end
-
-struct NoThermoStat <: AbstractThermoStat
-    nostat::Bool
-end
-
-NoThermoStat() = NoThermoStat(true)
-
-function thermostat_update!(thermostat::NoThermoStat, sys::MDSys{T}, info::SimulationInfo{T}) where T <: Number
-    return nothing
-end
-
-
-struct NoNeighborFinder{T} <: AbstractNeighborFinder
-    neighborlist::Vector{Tuple{Int64, Int64, T}}
-end
-
-NoNeighborFinder(n_atoms::TI, T::Type = Float64) where {TI <: Integer} = NoNeighborFinder{T}([(i, j, zero(T)) for i in 1:n_atoms - 1 for j in i+1:n_atoms])
-
-function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: NoNeighborFinder}
-    return nothing
-end
-
-
-
-struct NoInteraction <: AbstractInteraction
-    nointeaction::Bool
-end
-
-NoInteraction() = NoInteraction(true)
-
-function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
-    return nothing
-end
-

@@ -12,12 +12,9 @@ mutable struct PressureLogger{T, TI} <: AbstractLogger
     output::Bool
 end
 
-struct TrajectionLogger{TI, T} <: AbstractLogger 
+struct TrajectionLogger{TI} <: AbstractLogger 
     step::TI 
-    position_file::String
-    velocity_file::String
-    position::Vector{SVector{3, T}}
-    velocity::Vector{SVector{3, T}}
+    trajection_file::String
     output::Bool
 end
 
@@ -36,28 +33,22 @@ TempartureLogger{T}(step::TI; output::Bool = true) where{TI<:Integer, T<:Number}
 PressureLogger(step::TI; output::Bool = true) where{TI<:Integer} = PressureLogger{Float64}(step, Vector{Float64}(), output)
 PressureLogger{T}(step::TI; output::Bool = true) where{TI<:Integer, T<:Number} = PressureLogger{T}(step, Vector{T}(), output)
 
-function TrajectionLogger(info::SimulationInfo{T}, step::TI; output::Bool = true) where{T<:Number, TI<:Integer}
-    position_file = "position.txt"
-    velocity_file = "velocity.txt"
+function TrajectionLogger(;step::TI=100, trajection_file::String = "trajection.txt", output::Bool = true) where{TI<:Integer}
     if output
         # if there is already a file used to store the result, refresh them
-        f = open(position_file, "w")
-        close(f)
-        f = open(velocity_file, "w")
+        f = open(trajection_file, "w")
         close(f)
     end
-
-    position = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.coords]
-    velocity = [SVector{3, T}(xi[1], xi[2], xi[3]) for xi in info.velcoity]
-    return TrajectionLogger{TI, T}(step, position_file, velocity_file, position, velocity, output)
+    return TrajectionLogger{TI}(step, trajection_file, output)
 end
 
 # this function is used to record temparture
 function record!(logger::TempartureLogger{T, TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
     if iszero(info.running_step % logger.step) && logger.output
         Ek = zero(T)
-        for i in 1:sys.n_atoms
-            Ek += 0.5 * sys.atoms[i].mass * sum(abs2, info.velcoity[i])
+        for p_info in info.particle_info
+            id = p_info.id
+            Ek += 0.5 * sys.atoms[id].mass * sum(abs2, p_info.velocity)
         end
         temparture = T(2.0 * Ek / (3.0 * sys.n_atoms))
         push!(logger.data, temparture)
@@ -71,20 +62,19 @@ end
 
 function record!(logger::TrajectionLogger{TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}
     if iszero(info.running_step % logger.step) && logger.output
-        PointToStaticArrays3D!(info.coords, logger.position)
-        PointToStaticArrays3D!(info.velcoity, logger.velocity)
-
-        IO_position = open(logger.position_file, "a")
-        writedlm(IO_position, info.running_step)
-        writedlm(IO_position, logger.position, ",")
-        writedlm(IO_position, "\n")
-        close(IO_position)
-
-        IO_velocity = open(logger.velocity_file, "a")
-        writedlm(IO_velocity, info.running_step)
-        writedlm(IO_velocity, logger.velocity, ",")
-        writedlm(IO_velocity, "\n")
-        close(IO_velocity)
+        IO_trajection = open(logger.trajection_file, "a")
+        write(IO_trajection, "step = $(info.running_step) \n")
+        write(IO_trajection, "id, atom_type, x, y, z, vx, vy, vz", "\n")
+        for p_info in info.particle_info
+            id = p_info.id
+            atom_type = sys.atoms[id].type
+            x, y, z = p_info.position
+            vx, vy, vz = p_info.velocity
+            data = "$id, $atom_type, $x, $y, $z, $vx, $vy, $vz"
+            write(IO_trajection, data, "\n")
+        end
+        writedlm(IO_trajection, "\n")
+        close(IO_trajection)
     end
     return nothing
 end

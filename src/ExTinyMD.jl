@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, StatProfilerHTML, Plots, DelimitedFiles
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, DelimitedFiles
 
 
 include("types.jl")
