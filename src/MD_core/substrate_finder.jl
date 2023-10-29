@@ -1,5 +1,3 @@
-export SubNeighborFinder, update_finder!
-
 mutable struct SubNeighborFinder{T, TI} <: AbstractNeighborFinder
     cutoff::T
     update_steps::TI

@@ -1,5 +1,3 @@
-export TempartureLogger, record!, TrajectionLogger
-
 mutable struct TempartureLogger{T, TI} <: AbstractLogger
     step::TI
     data::Vector{T}

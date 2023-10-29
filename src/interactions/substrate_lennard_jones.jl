@@ -1,5 +1,3 @@
-export SubLennardJones, update_acceleration!
-
 struct SubLennardJones{T} <: AbstractInteraction
     ϵ::T
     cutoff::T

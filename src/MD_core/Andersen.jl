@@ -1,5 +1,3 @@
-export AndersenThermoStat, thermostat_update!
-
 struct AndersenThermoStat{T} <: AbstractThermoStat
     tempature::T
     ν::T

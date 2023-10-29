@@ -1,5 +1,3 @@
-export CellList3D, CellList2D, CellListDir3D, update_finder!, CellListDirQ2D, CellListQ2D
-
 mutable struct CellList3D{T, TI} <: AbstractNeighborFinder
     cell_list::InPlaceNeighborList{Box{OrthorhombicCell, 3, T, T, 9, T}, CellList{3, T}, CellListMap.AuxThreaded{3, T}, CellListMap.NeighborList{T}}
     neighbor_list::Vector{Tuple{Int64, Int64, T}}
