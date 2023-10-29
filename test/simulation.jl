@@ -7,13 +7,17 @@
     boundary = Q2dBoundary(L, L, L)
     atoms = Vector{Atom{Float64}}()
 
-    for i in 1:n_atoms
+    for i in 1:n_atoms ÷ 2
         push!(atoms, Atom(type = 1, mass = 1.0, charge = 1.0))
+    end
+
+    for i in n_atoms ÷ 2 + 1:n_atoms
+        push!(atoms, Atom(type = 1, mass = 1.0, charge = - 1.0))
     end
 
     info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.5, L - 0.5), boundary; min_r = 2.0, temp = 1.0)
 
-    interactions = [(LennardJones(), CellListDir3D(info, 4.5, boundary, 100)), (SubLennardJones(0.0, L; cutoff = 1.0, σ = 0.5), SubNeighborFinder(1.5, info, 0.0, L))]
+    interactions = [(LennardJones(), CellList3D(info, 4.5, boundary, 100)), (SubLennardJones(0.0, L; cutoff = 1.0, σ = 0.5), SubNeighborFinder(1.5, info, 0.0, L)), (ExternalField(E = Point((0.0, 0.0, 1.0))), NoNeighborFinder(n_atoms))]
 
     loggers = [TempartureLogger(100, output = false), TrajectionLogger(step = 100, output = false)]
     simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
