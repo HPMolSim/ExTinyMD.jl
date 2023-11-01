@@ -21,7 +21,7 @@ end
 
 function TemperatureLogger(step::TI; output::Bool = true) where{TI<:Integer}
     if output
-        f = open("Temperature.txt", "w")
+        f = open("temperature.txt", "w")
         close(f)
     end
     return TemperatureLogger{Float64, TI}(step, Vector{Float64}(), output)
