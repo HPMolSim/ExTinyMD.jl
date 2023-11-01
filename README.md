@@ -37,7 +37,7 @@ begin
     interactions = [(LennardJones(), CellList3D(info, 4.5, boundary, 100))]
 
     # loggers, will store the data during simulations
-    loggers = [TempartureLogger(100, output = false), TrajectionLogger(step = 1000, output = false)]
+    loggers = [TemperatureLogger(100, output = false), TrajectionLogger(step = 1000, output = false)]
 
     # simulator and thermostat
     simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))

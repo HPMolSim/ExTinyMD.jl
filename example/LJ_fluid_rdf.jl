@@ -14,7 +14,7 @@ begin
     info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.0, L), boundary; min_r = 0.1, temp = 1.0)
 
     interactions = [(LennardJones(), CellList3D(info, 4.5, boundary, 100))]
-    loggers = [TempartureLogger(100, output = false), TrajectionLogger(step = 1000, output = false)]
+    loggers = [TemperatureLogger(100, output = false), TrajectionLogger(step = 1000, output = false)]
     simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
 
     sys = MDSys(
