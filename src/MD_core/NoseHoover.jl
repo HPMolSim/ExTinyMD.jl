@@ -43,6 +43,11 @@ end
     info.running_step += Int64(1)
     erase_acceleration!(info)
 
+    # init the Ek in the first step
+    if info.running_step == 1
+        simulator.Ek = Ek(sys, info)
+    end
+
     update_nhchain!(simulator, sys, info)
 
     update_position!(info, dt / 2)
