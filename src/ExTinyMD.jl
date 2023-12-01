@@ -2,7 +2,7 @@ module ExTinyMD
 
 using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, DelimitedFiles
 
-export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity
+export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity
 export VerletProcess, simulate!
 export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
 export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
@@ -12,6 +12,7 @@ export SubLennardJones, LennardJones, ExternalField
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
+export MSD
 
 include("types.jl")
 
@@ -35,5 +36,6 @@ include("interactions/external_field.jl")
 # Tools
 include("Tools/data_loader.jl")
 include("Tools/rdf.jl")
+include("Tools/MSD.jl")
 
 end
