@@ -1,7 +1,7 @@
 # ExTinyMD
 
 [![Build Status](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml?query=branch%3Amain)
-[![Coverage](https://codecov.io/gh/ArrogantGao/ExTinyMD.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/ArrogantGao/ExTinyMD.jl)
+[![Coverage](https://codecov.io/gh/HPMolSim/ExTinyMD.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/HPMolSim/ExTinyMD.jl)
 
 
 `ExTinyMD.jl` for Extremely Tiny Molecular Dynamic is a simple package written in `Julia`, which provide a simple software for MD simulations.
