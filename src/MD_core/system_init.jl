@@ -64,3 +64,30 @@ function random_velocity(;temp::T, atoms::Vector{Atom{T}}, rng=Random.GLOBAL_RNG
 
     return atoms_velocity
 end
+
+function SimulationInfo(n_atoms::Int, atoms::Vector{Atom{T}}, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::Int=100, rng=Random.GLOBAL_RNG, temp::T = 1.0) where {T}
+    positions = random_position(n_atoms, place, boundary; min_r = min_r, max_attempts = max_attempts)
+    velocities = random_velocity(;temp = temp, atoms = atoms, rng=rng)
+    accelerations = [Point(zero(T), zero(T), zero(T)) for _=1:n_atoms]
+    particle_info = [PatricleInfo(id, positions[id], velocities[id], accelerations[id]) for id in 1:n_atoms]
+
+    dict_vec = Vector{Tuple{Int, Int}}()
+    for i in 1:n_atoms
+        id = particle_info[i].id
+        push!(dict_vec, (id, i))
+    end
+    id_dict = Dict(dict_vec)
+
+    return SimulationInfo{T}(zero(Int64), particle_info, id_dict)
+end
+
+function create_atoms(atoms_types::Vector{Tuple{Int, Atom{T}}}) where{T}
+    atoms = Vector{Atom{T}}()
+    for atom_type in atoms_types
+        num, atom = atom_type
+        for _=1:num
+            push!(atoms, atom)
+        end
+    end
+    return atoms
+end

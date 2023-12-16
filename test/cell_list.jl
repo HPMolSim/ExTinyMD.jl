@@ -3,11 +3,7 @@
     n_atoms = Int64(round(n_atoms))
     L = 50.0
     boundary = CubicBoundary(L)
-    atoms = Vector{Atom{Float64}}()
-
-    for i in 1:n_atoms
-        push!(atoms, Atom(type = 1, mass = 1.0, charge = 1.0))
-    end
+    atoms = create_atoms([(n_atoms, Atom(type = 1, mass = 1.0))])
 
     info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.5, L - 0.5), boundary; min_r = 2.0, temp = 1.0)
     info.running_step = 1
@@ -32,11 +28,7 @@ end
     n_atoms = Int64(round(n_atoms))
     L = 50.0
     boundary = Q2dBoundary(L, L, L)
-    atoms = Vector{Atom{Float64}}()
-
-    for i in 1:n_atoms
-        push!(atoms, Atom(type = 1, mass = 1.0, charge = 1.0))
-    end
+    atoms = create_atoms([(n_atoms, Atom(type = 1, mass = 1.0))])
 
     info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.5, L - 0.5), boundary; min_r = 2.0, temp = 1.0)
     info.running_step = 1

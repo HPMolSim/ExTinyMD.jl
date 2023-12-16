@@ -2,11 +2,11 @@ module ExTinyMD
 
 using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, DelimitedFiles
 
-export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity
+export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
 export VerletProcess, simulate!
 export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
 export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
-export TemperatureLogger, TrajectionLogger
+export TemperatureLogger, TrajectoryLogger
 
 export SubLennardJones, LennardJones, ExternalField
 
@@ -19,14 +19,19 @@ include("types.jl")
 
 # this part will be about the MD processes
 include("MD_core/system_init.jl")
-include("MD_core/Andersen.jl")
-include("MD_core/Berendsen.jl")
-include("MD_core/NoseHoover.jl")
-include("MD_core/loggers.jl")
-include("MD_core/Verlet.jl")
-include("MD_core/simulator.jl")
-include("MD_core/cell_list.jl")
-include("MD_core/substrate_finder.jl")
+
+include("MD_core/simulator/Andersen.jl")
+include("MD_core/simulator/Berendsen.jl")
+include("MD_core/simulator/NoseHoover.jl")
+include("MD_core/simulator/Verlet.jl")
+include("MD_core/simulator/simulator.jl")
+
+include("MD_core/neighbor_finder/boundary.jl")
+include("MD_core/neighbor_finder/cell_list.jl")
+include("MD_core/neighbor_finder/substrate_finder.jl")
+
+include("MD_core/recorder/temperatue_logger.jl")
+include("MD_core/recorder/trajectory_logger.jl")
 
 # this part will be about the interactions
 include("interactions/lennard_jones.jl")
