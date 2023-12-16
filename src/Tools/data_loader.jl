@@ -1,31 +1,34 @@
 """
-load_trajection(filename::String) will load the trajection from the file named "filename".
+load_trajectory(filename::String) will load the trajection from the file named "filename".
 Structure of data will be vector of vector of [id, type, x, y, z, vx, vy, vz].
 
 """
-function load_trajection(filename::String)
+function load_trajectory(filename::String)
     f = open(filename)
-    trajection_list = []
+
+    trajectory_list = []
+    step_list = []
 
     while !eof(f)
-        readline(f)
+        step_string = split(readline(f), "=")
+        step = parse(Int64, step_string[2])
+        push!(step_list, step)
+
         readline(f)
 
-        trajection = []
+        trajectory = []
         while (line = readline(f)) != ""
             data_string = split(line, ",")
             data_num = parse.(Float64, data_string)
-            push!(trajection, data_num)
+            push!(trajectory, data_num)
         end
 
-        readline(f)
-
-        push!(trajection_list, trajection)
+        push!(trajectory_list, trajectory)
     end
 
     close(f)
 
-    return trajection_list
+    return trajectory_list, step_list
 end
 
 function data2info(data::Vector, boundary::Boundary{T}, masses::Vector{T}, charges::Vector{T}) where{T}
