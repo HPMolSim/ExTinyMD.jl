@@ -1,6 +1,7 @@
 name = "ExTinyMD"
 uuid = "fec76197-d59f-46dd-a0ed-76a83c21f7aa"
 authors = ["Xuanzhao Gao <xz.gao@connect.ust.hk>"]
+repo = "https://github.com/HPMolSim/ExTinyMD.jl"
 version = "0.2.4"
 
 [deps]
