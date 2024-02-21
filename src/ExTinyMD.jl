@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, BenchmarkTools, DelimitedFiles
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles
 
 export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
 export VerletProcess, simulate!

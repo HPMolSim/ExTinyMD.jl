@@ -90,7 +90,7 @@ end
 struct NoNeighborFinder{T} <: AbstractNeighborFinder
     neighborlist::Vector{Tuple{Int64, Int64, T}}
 end
-NoNeighborFinder(T::Type = Float64) where {TI <: Integer} = NoNeighborFinder{T}([(0, 0, zero(T))])
+NoNeighborFinder(T::Type = Float64) = NoNeighborFinder{T}([(0, 0, zero(T))])
 
 function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: NoNeighborFinder}
     return nothing
