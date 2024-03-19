@@ -2,7 +2,7 @@ name = "ExTinyMD"
 uuid = "fec76197-d59f-46dd-a0ed-76a83c21f7aa"
 authors = ["Xuanzhao Gao <xz.gao@connect.ust.hk>"]
 repo = "https://github.com/HPMolSim/ExTinyMD.jl"
-version = "0.2.6"
+version = "0.2.5"
 
 [deps]
 CellListMap = "69e1c6dd-3888-40e6-b3c8-31ac5f578864"
