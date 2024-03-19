@@ -57,3 +57,13 @@ end
     end
     return (Point(zero(T), zero(T), zero(T)), Point(zero(T), zero(T), zero(T)), zero(T))
 end
+
+@inbounds function position_check3D(coord_1::NTuple{3, T}, coord_2::NTuple{3, T}, boundary::Boundary{T}, cutoff::T) where T
+    new_coord_1, new_coord_2, r_sq = position_check3D(Point(coord_1), Point(coord_2), boundary, cutoff)
+    return (new_coord_1.coo, new_coord_2.coo, r_sq)
+end
+
+@inbounds function position_checkQ2D(coord_1::NTuple{3, T}, coord_2::NTuple{3, T}, boundary::Boundary{T}, cutoff::T) where T
+    new_coord_1, new_coord_2, r_sq = position_checkQ2D(Point(coord_1), Point(coord_2), boundary, cutoff)
+    return (new_coord_1.coo, new_coord_2.coo, r_sq)
+end
