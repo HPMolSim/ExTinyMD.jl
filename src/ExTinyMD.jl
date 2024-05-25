@@ -3,10 +3,11 @@ module ExTinyMD
 using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles
 
 export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
+export energy
 export VerletProcess, simulate!
 export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
 export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
-export TemperatureLogger, TrajectoryLogger
+export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
 export SubLennardJones, LennardJones, ExternalField
 
@@ -32,6 +33,7 @@ include("MD_core/neighbor_finder/substrate_finder.jl")
 
 include("MD_core/recorder/temperatue_logger.jl")
 include("MD_core/recorder/trajectory_logger.jl")
+include("MD_core/recorder/energy_logger.jl")
 
 # this part will be about the interactions
 include("interactions/lennard_jones.jl")

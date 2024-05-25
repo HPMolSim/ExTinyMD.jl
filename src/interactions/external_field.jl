@@ -2,6 +2,8 @@ struct ExternalField{T} <: AbstractInteraction
     E::Point{3, T}
 end
 
+Base.show(io::IO, interaction::ExternalField) = print(io, "ExternalField with E = $(interaction.E)")
+
 function ExternalField(;E::Point{3, T} = Point((0.0, 0.0, 0.0))) where {T} 
     return ExternalField{T}(E)
 end

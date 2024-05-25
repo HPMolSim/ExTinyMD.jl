@@ -4,10 +4,12 @@ struct TrajectoryLogger{TI} <: AbstractLogger
     output::Bool
 end
 
+Base.show(io::IO, logger::TrajectoryLogger) = print(io, "TrajectoryLogger")
+
 function TrajectoryLogger(;step::TI, trajectory_file::String = "trajectory.txt", output::Bool = true) where{TI<:Integer}
     if output
         # if there is already a file used to store the result, refresh them
-        f = open(trajectory_file, "a")
+        f = open(trajectory_file, "w")
         close(f)
     end
     return TrajectoryLogger{TI}(step, trajectory_file, output)

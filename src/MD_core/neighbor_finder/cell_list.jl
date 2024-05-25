@@ -4,6 +4,7 @@ mutable struct CellList3D{T, TI} <: AbstractNeighborFinder
     update_steps::TI
 end
 
+Base.show(io::IO, cell_list::CellList3D) = print(io, "CellList3D")
 
 function CellList3D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, update_steps::TI) where {T<:Number, TI<:Integer}
     coords = [SVector{3, T}(p_info.position[1], p_info.position[2], p_info.position[3]) for p_info in info.particle_info]
@@ -31,6 +32,8 @@ mutable struct CellListQ2D{T, TI} <: AbstractNeighborFinder
     neighbor_list::Vector{Tuple{Int64, Int64, T}}
     update_steps::TI
 end
+
+Base.show(io::IO, cell_list::CellListQ2D) = print(io, "CellListQ2D")
 
 function CellListQ2D(info::SimulationInfo{T}, cutoff::T, boundary::Boundary{T}, update_steps::TI) where {T<:Number, TI<:Integer}
     coords = [SVector{2, T}(p_info.position[1], p_info.position[2]) for p_info in info.particle_info]

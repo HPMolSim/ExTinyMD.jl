@@ -6,6 +6,8 @@ struct SubLennardJones{T} <: AbstractInteraction
     sub_up::T
 end
 
+Base.show(io::IO, interaction::SubLennardJones) = print(io, "SubLennardJones with ϵ = $(interaction.ϵ), cutoff = $(interaction.cutoff), σ = $(interaction.σ), sub_down = $(interaction.sub_down), sub_up = $(interaction.sub_up)")
+
 SubLennardJones(sub_down::T, sub_up::T;ϵ::T = 1.0, cutoff::T = 3.5, σ::T = 1.0) where T<:Number = SubLennardJones(ϵ, cutoff, σ, sub_down, sub_up)
 
 function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::SubNeighborFinder{T, TI}, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, TI<:Integer}

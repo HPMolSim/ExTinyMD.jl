@@ -4,6 +4,8 @@ mutable struct TemperatureLogger{T, TI} <: AbstractLogger
     output::Bool
 end
 
+Base.show(io::IO, logger::TemperatureLogger) = print(io, "TemperatureLogger")
+
 mutable struct PressureLogger{T, TI} <: AbstractLogger
     step::TI
     data::Vector{T}

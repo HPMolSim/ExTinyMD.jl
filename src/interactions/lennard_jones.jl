@@ -4,6 +4,8 @@ struct LennardJones{T} <: AbstractInteraction
     σ::T
 end
 
+Base.show(io::IO, interaction::LennardJones) = print(io, "LennardJones with ϵ = $(interaction.ϵ), cutoff = $(interaction.cutoff), σ = $(interaction.σ)")
+
 LennardJones(;ϵ::T = 1.0, cutoff::T = 3.5, σ::T = 1.0) where T = LennardJones(ϵ, cutoff, σ)
 
 function update_acceleration!(interaction::LennardJones{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
