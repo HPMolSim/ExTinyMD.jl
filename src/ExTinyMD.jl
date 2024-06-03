@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles, SpecialFunctions, StatsBase
 
 export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
 export energy
@@ -9,7 +9,8 @@ export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
 export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
 export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
-export SubLennardJones, LennardJones, ExternalField
+export SubLennardJones, LennardJones, ExternalField, RBEInteraction
+export calculate_H, calculate_S, calculate_probability, mh_sample, calculate_force, calculate_Fi, generate_k_vector, sampling, update_rho_k, calculate_G, calculate_Fi_short
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
@@ -39,6 +40,7 @@ include("MD_core/recorder/energy_logger.jl")
 include("interactions/lennard_jones.jl")
 include("interactions/substrate_lennard_jones.jl")
 include("interactions/external_field.jl")
+include("interactions/rbe.jl")
 
 # Tools
 include("Tools/data_loader.jl")
