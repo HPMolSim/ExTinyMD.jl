@@ -114,3 +114,16 @@ Base.show(io::IO, interaction::NoInteraction) = print(io, "NoInteraction")
 function update_acceleration!(interaction::NoInteraction, neighborfinder::T_NEIGHBOR, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NEIGHBOR<:AbstractNeighborFinder}
     return nothing
 end
+
+struct RBEInteractions{T} <: ExTinyMD.AbstractInteraction
+    α::T
+    p::Int
+    samples::Vector{Any}
+end
+
+Base.show(io::IO, interaction::RBEInteractions) = print(io, "RBEInteraction with α = $(interaction.α), p = $(interaction.p), samples = $(interaction.samples)")
+
+function RBEInteraction(α::T, L::T, p::Int) where T
+    samples = sampling(α, L, p)
+    return RBEInteractions{T}(α, p, samples)
+end

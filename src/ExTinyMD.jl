@@ -9,8 +9,7 @@ export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
 export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
 export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
-export SubLennardJones, LennardJones, ExternalField, RBEInteraction
-export calculate_H, calculate_S, calculate_probability, mh_sample, calculate_force, calculate_Fi, generate_k_vector, sampling, update_rho_k, calculate_G, calculate_Fi_short
+export SubLennardJones, LennardJones, ExternalField, RBEInteractions
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!

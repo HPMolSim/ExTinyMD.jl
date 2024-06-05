@@ -1,13 +1,3 @@
-struct RBEInteraction{T} <: ExTinyMD.AbstractInteraction
-    α::T
-    cutoff::T
-    ε::T
-end
-
-Base.show(io::IO, interaction::RBEInteraction) = print(io, "RBEInteraction with α = $(interaction.α), cutoff = $(interaction.cutoff), ε = $(interaction.ε)")
-
-RBEInteraction(;α::T = 1.0, cutoff::T = 3.5, ε::T = 1.0) where T = RBEInteraction(α, cutoff, ε)
-
 function acceptance_probability(m_star::Float64, α::Float64, L::Float64)
     if m_star == 0
         return erf(1 / (2 * sqrt(α * L^2 / π^2)))
@@ -99,7 +89,7 @@ function update_rho_k(p::Int, charges::Vector{Float64}, positions::Matrix{Tuple{
     rho_k = zeros(Complex{Float64}, p)
     for i in 1:p
         rho_k[i] = sum(charges[j] * exp(1im * dot(samples[i], [positions[j]...])) for j in 1:n_atoms)
-    end
+    end    
     return rho_k
 end
 
@@ -109,43 +99,55 @@ function calculate_G(r::Float64, α::Float64)
     return term1 + term2
 end
 
-function calculate_Fi_short(i::Int, p::Int, L::Float64, α::Float64, charges::Vector{Float64}, positions::Matrix{Tuple{Float64, Float64, Float64}})
-    Fi2 = zeros(Float64, 3)
-    qi = charges[i]
-    ri = [positions[i]...]
+function calculate_Fi_short(charges::Vector{Float64}, positions::Matrix{Point{3, Float64}}, neighborfinder::AbstractNeighborFinder, α::Float64, L::Float64)
+    neighbor_list = neighborfinder.neighbor_list
 
-    for j in 1:length(charges)
-        if i != j
-            rj = [positions[j]...]
-            rij = rj - ri
-            rij_pbc = mod.(rij .+ L / 2, L) .- L / 2  
-            rij_norm = norm(rij_pbc)
-            if rij_norm != 0.0
-                G_rij = calculate_G(rij_norm, α)  
-                Fi2 += - qi * charges[j] * G_rij * rij_pbc / rij_norm
-            end
+    n_atoms = length(charges)
+    force_short = [Point(zero(Float64), zero(Float64), zero(Float64)) for _=1:n_atoms]
+    boundary = Boundary(L, (1, 1, 1))
+
+    for (i, j, ρ) in neighbor_list
+        coord_1, coord_2, r_sq = position_check3D(positions[i], positions[j], boundary, L)
+        if iszero(r_sq)
+            nothing
+        else
+            q_1 = charges[i]
+            q_2 = charges[j]
+            F_ij = calculate_Fs_pair(q_1, q_2, α, coord_1, coord_2)
+            force_short[i] += F_ij
+            force_short[j] -= F_ij
         end
     end
 
-    return Fi2
+    return force_short
 end
 
-function ExTinyMD.update_acceleration!(interaction::RBEInteraction, neighborfinder, sys, info)
+function calculate_Fs_pair(q1::Float64, q2::Float64, α::Float64, coord_1::Point{3, Float64}, coord_2::Point{3, Float64})::Point{3, Float64}
+    rij = coord_2 - coord_1
+    r = norm(rij)
+    G_r = calculate_G(r, α)
+    F_ij = -q1 * q2 * G_r * rij / r
+    return F_ij
+end
+
+
+function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
     n_atoms = sys.n_atoms
     L = sys.boundary.length[1]
-    α = 3.0
-    p = 10
+    α = interaction.α
+    p = interaction.p
+    samples = interaction.samples
 
     charges = [sys.atoms[i].charge for i in 1:n_atoms]
-    positions = hcat([info.particle_info[i].position.coo for i in 1:n_atoms]...)
+    positions = [Point{3, T}(info.particle_info[i].position) for i in 1:n_atoms]
+
     update_finder!(neighborfinder, info)
-    samples = sampling(α, L, p)
     rho_k = update_rho_k(p, charges, positions, samples)
 
     for i in 1:n_atoms
-        Fi = RBE.calculate_Fi(i, p, L, α, charges, positions, rho_k, samples)
-        Fi2 = calculate_Fi_short(i, p, L, α, charges, positions)
-        info.particle_info[i].acceleration += Point{3, Float64}(Tuple((Fi + Fi2) / sys.atoms[i].mass))
+        Fi = calculate_Fi(i, p, L, α, charges, positions, rho_k, samples)
+        Fi2 = calculate_Fi_short(charges, positions, neighborfinder, α, L)
+        info.particle_info[i].acceleration += Point{3, T}(Tuple((Fi + Fi2) / sys.atoms[i].mass))
     end
 
     return nothing
