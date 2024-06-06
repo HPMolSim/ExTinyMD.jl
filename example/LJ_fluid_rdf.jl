@@ -1,4 +1,5 @@
 using ExTinyMD, Plots
+using BenchmarkTools
 
 # begin
     n_atoms = 1000
@@ -14,8 +15,8 @@ using ExTinyMD, Plots
     info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.0, L), boundary; min_r = 0.1, temp = 1.0)
    
     interactions = [
-        (LennardJones(), CellList3D(info, 4.5, boundary, 100))
-        (RBEInteraction(3.0, L, 5), CellList3D(info, 4.5, boundary, 100))
+        (LennardJones(), CellList3D(info, 4.5, boundary, 100)),
+        (RBEInteractions(3.0, L, 5), CellList3D(info, 4.5, boundary, 100))
         ]
     loggers = [TemperatureLogger(100, output = false)]
     simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
@@ -29,7 +30,8 @@ using ExTinyMD, Plots
         simulator = simulator
     )
 
-    @benchmark simulate!(simulator, sys, info, 100)
+    @benchmark simulate!(simulator, sys, info, 1)
+    # @benchmark simulate!($simulator, $sys, $info, $100)
 
     # N = 20000
     # bin_num = 100

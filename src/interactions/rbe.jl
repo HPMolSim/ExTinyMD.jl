@@ -1,3 +1,19 @@
+struct RBEInteractions{T} <: AbstractInteraction
+    α::T
+    p::Int
+    k_set::Vector{}
+    prob::Vector{T}
+    V::Float64
+    cutoff::Float64
+end
+
+Base.show(io::IO, interaction::RBEInteractions{}) = print(io, "RBEInteraction with α = $(interaction.α), p = $(interaction.p), k_set = $(interaction.k_set), prob = $(interaction.prob), V = $(interaction.V), cutoff = $(interaction.cutoff)")
+
+function RBEInteractions(α::T, L::T, p::Int) where T
+    α, p, k_set, prob, V, cutoff = sampling(α, L, p)
+    return RBEInteractions{T}(α, p, k_set, prob, V, cutoff)
+end
+
 function acceptance_probability(m_star::Float64, α::Float64, L::Float64)
     if m_star == 0
         return erf(1 / (2 * sqrt(α * L^2 / π^2)))
@@ -21,8 +37,10 @@ function mh_sample(α::Float64, L::Float64)
     return sample
 end
 
-function sampling(α, L, n)
+function sampling(α, L, p)
     k_set = []
+    V = L^3
+    cutoff = 3.5
     for i in 0:2*L
         k_vector = generate_k_vector(α,L)
         push!(k_set, k_vector)
@@ -30,9 +48,7 @@ function sampling(α, L, n)
     k_set = collect(k_set)
     z = sum(exp(-(norm(k)^2) / (4*α)) for k in k_set)
     prob = [exp(-(norm(k)^2) / (4*α)) / z for k in k_set]
-    samples = sample(k_set, weights(prob), n)
-
-    return samples
+    return α, p, k_set, prob, V, cutoff
 end
 
 function calculate_H(α, L)
@@ -68,27 +84,21 @@ function generate_k_vector(α::Float64, L::Float64)
     return [kx, ky, kz]
 end
 
-function calculate_Fi(i::Int, p::Int, L::Float64, α::Float64, charges::Vector{Float64}, positions::Matrix{Tuple{Float64, Float64, Float64}}, rho_k::Vector{Complex{Float64}}, samples::Vector)
-    V = L^3
-    Fi = zeros(Float64, 3)
-    qi = charges[i]
-    ri = [positions[i]...]
-
+function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, info::SimulationInfo{T}, samples::Vector{Any}, sys) where T<:Number
+    Fi = [0 , 0, 0]
     for j in 1:p
         k2_ell = norm(samples[j])^2
-        exp_term = exp(-1im * dot(samples[j], ri))
+        exp_term = exp(-1im * dot(samples[j], info.particle_info[i].position))
         imag_part = imag(exp_term * rho_k[j])
-        Fi += - (4 * π * samples[j] * qi) / (V * k2_ell) * imag_part
+        Fi += - (4 * π * samples[j] * sys.atoms[i].charge) / (V * k2_ell) * imag_part
     end
-
     return Fi
 end
 
-function update_rho_k(p::Int, charges::Vector{Float64}, positions::Matrix{Tuple{Float64, Float64, Float64}}, samples::Vector{Any})
-    n_atoms = length(charges)
+function update_rho_k(n_atoms::Int, p, samples, sys, info,)
     rho_k = zeros(Complex{Float64}, p)
     for i in 1:p
-        rho_k[i] = sum(charges[j] * exp(1im * dot(samples[i], [positions[j]...])) for j in 1:n_atoms)
+        rho_k[i] = sum(sys.atoms[j].charge * exp(1im * dot(samples[i], info.particle_info[j].position)) for j in 1:n_atoms)
     end    
     return rho_k
 end
@@ -99,57 +109,41 @@ function calculate_G(r::Float64, α::Float64)
     return term1 + term2
 end
 
-function calculate_Fi_short(charges::Vector{Float64}, positions::Matrix{Point{3, Float64}}, neighborfinder::AbstractNeighborFinder, α::Float64, L::Float64)
-    neighbor_list = neighborfinder.neighbor_list
-
-    n_atoms = length(charges)
-    force_short = [Point(zero(Float64), zero(Float64), zero(Float64)) for _=1:n_atoms]
-    boundary = Boundary(L, (1, 1, 1))
-
-    for (i, j, ρ) in neighbor_list
-        coord_1, coord_2, r_sq = position_check3D(positions[i], positions[j], boundary, L)
-        if iszero(r_sq)
-            nothing
-        else
-            q_1 = charges[i]
-            q_2 = charges[j]
-            F_ij = calculate_Fs_pair(q_1, q_2, α, coord_1, coord_2)
-            force_short[i] += F_ij
-            force_short[j] -= F_ij
-        end
-    end
-
-    return force_short
-end
-
-function calculate_Fs_pair(q1::Float64, q2::Float64, α::Float64, coord_1::Point{3, Float64}, coord_2::Point{3, Float64})::Point{3, Float64}
+function calculate_F_short(coord_1,coord_2, α, i, j, sys::MDSys{T}) where T<:Number
+    q1 = sys.atoms[i].charge
+    q2 = sys.atoms[j].charge
     rij = coord_2 - coord_1
-    r = norm(rij)
+    r_vector = collect(rij.coo)
+    r = norm(r_vector)
     G_r = calculate_G(r, α)
-    F_ij = -q1 * q2 * G_r * rij / r
+    F_ij = -q1 * q2 * G_r * r_vector / r
     return F_ij
 end
 
 
-function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
+function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number ,T_NIEGHBER<:AbstractNeighborFinder}
     n_atoms = sys.n_atoms
-    L = sys.boundary.length[1]
     α = interaction.α
     p = interaction.p
-    samples = interaction.samples
-
-    charges = [sys.atoms[i].charge for i in 1:n_atoms]
-    positions = [Point{3, T}(info.particle_info[i].position) for i in 1:n_atoms]
-
+    V = interaction.V
+    boundary = sys.boundary
+    samples = sample(interaction.k_set, weights(interaction.prob), p, replace = false)
+    rho_k = update_rho_k(n_atoms, p, samples, sys, info)
     update_finder!(neighborfinder, info)
-    rho_k = update_rho_k(p, charges, positions, samples)
-
     for i in 1:n_atoms
-        Fi = calculate_Fi(i, p, L, α, charges, positions, rho_k, samples)
-        Fi2 = calculate_Fi_short(charges, positions, neighborfinder, α, L)
-        info.particle_info[i].acceleration += Point{3, T}(Tuple((Fi + Fi2) / sys.atoms[i].mass))
+        force_long = calculate_F_long(i, V, p, rho_k, info, samples, sys)
+        info.particle_info[i].acceleration += Point(force_long...) / sys.atoms[i].mass
     end
 
-    return nothing
+    for (i, j, r) in neighborfinder.neighbor_list
+        coord_1, coord_2, dist_sq = position_check3D(info.particle_info[i].position, info.particle_info[j].position, boundary, interaction.cutoff)
+        if iszero(dist_sq)
+            nothing
+        else
+            force_vector = calculate_F_short(coord_1, coord_2, α, i, j, sys)
+            force_short = Point(force_vector...)
+            info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
+            info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
+        end
+    end
 end
-
