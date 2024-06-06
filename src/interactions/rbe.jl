@@ -4,93 +4,64 @@ struct RBEInteractions{T} <: AbstractInteraction
     k_set::Vector{}
     prob::Vector{T}
     V::Float64
-    cutoff::Float64
+    cutoff::T
+    k_c::T
 end
-
-Base.show(io::IO, interaction::RBEInteractions{}) = print(io, "RBEInteraction with α = $(interaction.α), p = $(interaction.p), k_set = $(interaction.k_set), prob = $(interaction.prob), V = $(interaction.V), cutoff = $(interaction.cutoff)")
-
 LinearAlgebra.norm(p::Point) = sqrt(norm2(p))
 norm2(p::Point) = sum(abs2, p.coo)
 norm2(p::AbstractVector) = sum(abs2, p)
 Base.zero(p::Point{N, T}) where {N, T} = zero(Point{N, T})
 Base.zero(::Type{Point{N, T}}) where {N, T} = Point(ntuple(_->zero(T), N))
-function initialize_complex_vector(n::Int)::Vector{Complex{Float64}}
-    return fill(zero(Complex{Float64}), n)
+Base.zeros(::Type{Complex{Float64}}) = Complex{Float64}(0.0, 0.0)
+Base.zeros(::Type{Complex{Float64}}, p::Int) = fill(Complex{Float64}(0.0, 0.0), p)
+
+function RBEInteractions(α::T, L_x::Float64, L_y::Float64, L_z::Float64, p::Int, s::Float64) where T
+    k_c = 2s/sqrt(α)
+    cutoff = k_c / 2
+    S = calculate_S(α, L_x, L_y, L_z)
+    V = L_x * L_y * L_z
+    k_set = generate_k_set(L_x, L_y, L_z, k_c)
+    prob = compute_probabilities(k_set, α, S)
+    return RBEInteractions{T}(α, p, k_set, prob, V, cutoff, k_c)
 end
 
-function RBEInteractions(α::T, L::T, p::Int) where T
-    α, p, k_set, prob, V, cutoff = sampling(α, L, p)
-    return RBEInteractions{T}(α, p, k_set, prob, V, cutoff)
-end
-
-function acceptance_probability(m_star::Float64, α::Float64, L::Float64)
-    if m_star == 0
-        return erf(1 / (2 * sqrt(α * L^2 / π^2)))
-    else
-        sqrt_val = sqrt(α * L^2 / π^2)
-        return 0.5 * (erf((abs(m_star) + 0.5) / sqrt_val) - erf((abs(m_star) - 0.5) / sqrt_val))
-    end
-end
-
-function mh_sample(α::Float64, L::Float64)
-    sample = 0.0
-    while sample == 0.0
-        x_star = rand(Normal(0, sqrt(α * L^2 / (2 * π^2))))
-        m_star = Float64(round(Int, x_star))
-        q = acceptance_probability(m_star, α, L)
-        if rand() < q && m_star !=0
-            sample =  m_star
-            break
+function generate_k_set(L_x::Float64, L_y::Float64, L_z::Float64, k_c::Float64)
+    m_max_x = floor(Int, k_c * L_x / (2 * π))
+    m_max_y = floor(Int, k_c * L_y / (2 * π))
+    m_max_z = floor(Int, k_c * L_z / (2 * π))
+    k_set = []
+    for m1 in -m_max_x:m_max_x
+        for m2 in -m_max_y:m_max_y
+            for m3 in -m_max_z:m_max_z
+                k_vector = [2 * π * m1 / L_x, 2 * π * m2 / L_y, 2 * π * m3 / L_z]
+                if norm(k_vector) <= k_c && norm(k_vector) != 0
+                    push!(k_set, k_vector)
+                end
+            end
         end
     end
-    return sample
+    return k_set
 end
 
-function sampling(α, L, p)
-    k_set = []
-    V = L^3
-    cutoff = 3.5
-    for i in 0:2*L
-        k_vector = generate_k_vector(α,L)
-        push!(k_set, k_vector)
+function compute_probabilities(k_set, α::Float64, S::Float64)
+    probabilities = []
+    for k in k_set
+        prob = exp(-norm(k)^2 / (4 * α)) / S
+        push!(probabilities, prob)
     end
-    k_set = collect(k_set)
-    z = sum(exp(-(norm(k)^2) / (4*α)) for k in k_set)
-    prob = [exp(-(norm(k)^2) / (4*α)) / z for k in k_set]
-    return α, p, k_set, prob, V, cutoff
+    return probabilities
 end
 
-function calculate_H(α, L)
-  
-    const_part = sqrt(α * L^2 / π)
-    
-    exp_term(m, α, L) = exp(-α * m^2 * L^2)
-    
-    sum_terms = 0.0
-    for m in -1:1
-        sum_terms += exp_term(m, α, L)
-    end
-    
-    H = const_part * sum_terms
-    
-    return H
+function calculate_H(α::Float64, L_x::Float64, L_y::Float64, L_z::Float64)
+    Hx = sqrt(α * L_x^2 / π) * (1 + 2 * exp(-α * L_x^2))
+    Hy = sqrt(α * L_y^2 / π) * (1 + 2 * exp(-α * L_y^2))
+    Hz = sqrt(α * L_z^2 / π) * (1 + 2 * exp(-α * L_z^2))
+    return Hx * Hy * Hz
 end
  
-function calculate_S(α::Float64, L::Float64)
-    H = calculate_H(α, L)
+function calculate_S(α::Float64, L_x::Float64, L_y::Float64, L_z::Float64)
+    H = calculate_H(α, L_x, L_y, L_z)
     return H^3 - 1
-end
-
-function calculate_probability(k::Vector{Float64}, α::Float64, S::Float64)
-    k2 = sum(k .^ 2)
-    return exp(-k2 / (4 * α)) / S
-end
-
-function generate_k_vector(α::Float64, L::Float64) 
-    kx = mh_sample(α, L)
-    ky = mh_sample(α, L)
-    kz = mh_sample(α, L)
-    return [kx, ky, kz]
 end
 
 function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, info::SimulationInfo{T}, samples::Vector, sys) where T<:Number
@@ -104,8 +75,8 @@ function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, in
     return Fi
 end
 
-function update_rho_k(n_atoms::Int, p, samples, sys, info,)
-    rho_k = initialize_complex_vector(p)
+function update_rho_k(n_atoms::Int, p::Int, samples, sys, info,)
+    rho_k = zeros(Complex{Float64}, p)
     for i in 1:p
         rho_k[i] = sum(sys.atoms[j].charge * exp(1im * dot(samples[i], info.particle_info[j].position)) for j in 1:n_atoms)
     end    
@@ -118,7 +89,7 @@ function calculate_G(r::Float64, α::Float64)
     return term1 + term2
 end
 
-function calculate_F_short(coord_1,coord_2, α, i, j, sys::MDSys{T}) where T<:Number
+function calculate_F_short(coord_1, coord_2, α::Float64, i::Int, j::Int, sys::MDSys{T}) where T<:Number
     q1 = sys.atoms[i].charge
     q2 = sys.atoms[j].charge
     r_ij = coord_2 - coord_1
@@ -128,19 +99,18 @@ function calculate_F_short(coord_1,coord_2, α, i, j, sys::MDSys{T}) where T<:Nu
     return F_ij
 end
 
-
 function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number ,T_NIEGHBER<:AbstractNeighborFinder}
     n_atoms = sys.n_atoms
     α = interaction.α
     p = interaction.p
     V = interaction.V
     boundary = sys.boundary
-    samples = map(x->Point(T.(x)...), sample(interaction.k_set, weights(interaction.prob), p, replace = false))
+    samples = map(x->Point(T.(x)...), sample(interaction.k_set, weights(interaction.prob), p))
     rho_k = update_rho_k(n_atoms, p, samples, sys, info)
     update_finder!(neighborfinder, info)
     for i in 1:n_atoms
         force_long = calculate_F_long(i, V, p, rho_k, info, samples, sys)
-        info.particle_info[i].acceleration += Point(force_long...) / sys.atoms[i].mass
+        info.particle_info[i].acceleration += force_long / sys.atoms[i].mass
     end
 
     for (i, j, r) in neighborfinder.neighbor_list
@@ -150,7 +120,6 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
         else
             force_vector = calculate_F_short(coord_1, coord_2, α, i, j, sys)
             force_short = Point(force_vector...)
-    
             info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
             info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
         end
