@@ -1,8 +1,8 @@
 using ExTinyMD, Plots
 using BenchmarkTools
 
-# begin
-    n_atoms = 1000
+begin
+    n_atoms = 10
     n_atoms = Int64(round(n_atoms))
     L = 100.0
     boundary = CubicBoundary(L)
@@ -30,23 +30,23 @@ using BenchmarkTools
         simulator = simulator
     )
 
-    @benchmark simulate!(simulator, sys, info, 1)
-    # @benchmark simulate!($simulator, $sys, $info, $100)
+    simulate!(simulator, sys, info, 1)
+    @benchmark simulate!($simulator, $sys, $info, $100)
 
-    # N = 20000
-    # bin_num = 100
+    N = 20000
+    bin_num = 100
 
-    # hist, volume, r, dr = hist_init(N, bin_num, 4.6)
+    hist, volume, r, dr = hist_init(N, bin_num, 4.6)
 
-    # for i in 1:N
-    #     simulate!(simulator, sys, info, 100)
-    #     distance_hist!(hist, sys.interactions[1][2].neighbor_list, dr)
-    # end
+    for i in 1:N
+        simulate!(simulator, sys, info, 100)
+        distance_hist!(hist, sys.interactions[1][2].neighbor_list, dr)
+    end
 
-    # rdf = hist ./ (N .* volume)
-    # plot(r, 2 .* rdf, xlim = (0.0, 4.0), ylim = (0.0, 3.0))
+    rdf = hist ./ (N .* volume)
+    plot(r, 2 .* rdf, xlim = (0.0, 4.0), ylim = (0.0, 3.0))
 
-    # dir = @__DIR__
-    # file_name = joinpath(dir, "rdf_LJ_fluid.png")
-    # savefig(file_name)
-# end
+    dir = @__DIR__
+    file_name = joinpath(dir, "rdf_LJ_fluid.png")
+    savefig(file_name)
+end

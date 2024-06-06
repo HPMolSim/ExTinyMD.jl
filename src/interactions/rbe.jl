@@ -9,6 +9,15 @@ end
 
 Base.show(io::IO, interaction::RBEInteractions{}) = print(io, "RBEInteraction with α = $(interaction.α), p = $(interaction.p), k_set = $(interaction.k_set), prob = $(interaction.prob), V = $(interaction.V), cutoff = $(interaction.cutoff)")
 
+LinearAlgebra.norm(p::Point) = sqrt(norm2(p))
+norm2(p::Point) = sum(abs2, p.coo)
+norm2(p::AbstractVector) = sum(abs2, p)
+Base.zero(p::Point{N, T}) where {N, T} = zero(Point{N, T})
+Base.zero(::Type{Point{N, T}}) where {N, T} = Point(ntuple(_->zero(T), N))
+function initialize_complex_vector(n::Int)::Vector{Complex{Float64}}
+    return fill(zero(Complex{Float64}), n)
+end
+
 function RBEInteractions(α::T, L::T, p::Int) where T
     α, p, k_set, prob, V, cutoff = sampling(α, L, p)
     return RBEInteractions{T}(α, p, k_set, prob, V, cutoff)
@@ -84,10 +93,10 @@ function generate_k_vector(α::Float64, L::Float64)
     return [kx, ky, kz]
 end
 
-function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, info::SimulationInfo{T}, samples::Vector{Any}, sys) where T<:Number
-    Fi = [0 , 0, 0]
+function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, info::SimulationInfo{T}, samples::Vector, sys) where T<:Number
+    Fi = zero(eltype(samples))
     for j in 1:p
-        k2_ell = norm(samples[j])^2
+        k2_ell = norm2(samples[j])
         exp_term = exp(-1im * dot(samples[j], info.particle_info[i].position))
         imag_part = imag(exp_term * rho_k[j])
         Fi += - (4 * π * samples[j] * sys.atoms[i].charge) / (V * k2_ell) * imag_part
@@ -96,7 +105,7 @@ function calculate_F_long(i::Int, V, p::Int, rho_k::Vector{Complex{Float64}}, in
 end
 
 function update_rho_k(n_atoms::Int, p, samples, sys, info,)
-    rho_k = zeros(Complex{Float64}, p)
+    rho_k = initialize_complex_vector(p)
     for i in 1:p
         rho_k[i] = sum(sys.atoms[j].charge * exp(1im * dot(samples[i], info.particle_info[j].position)) for j in 1:n_atoms)
     end    
@@ -112,11 +121,10 @@ end
 function calculate_F_short(coord_1,coord_2, α, i, j, sys::MDSys{T}) where T<:Number
     q1 = sys.atoms[i].charge
     q2 = sys.atoms[j].charge
-    rij = coord_2 - coord_1
-    r_vector = collect(rij.coo)
-    r = norm(r_vector)
+    r_ij = coord_2 - coord_1
+    r = norm2(r_ij)
     G_r = calculate_G(r, α)
-    F_ij = -q1 * q2 * G_r * r_vector / r
+    F_ij = -q1 * q2 * G_r * r_ij / r
     return F_ij
 end
 
@@ -127,7 +135,7 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
     p = interaction.p
     V = interaction.V
     boundary = sys.boundary
-    samples = sample(interaction.k_set, weights(interaction.prob), p, replace = false)
+    samples = map(x->Point(T.(x)...), sample(interaction.k_set, weights(interaction.prob), p, replace = false))
     rho_k = update_rho_k(n_atoms, p, samples, sys, info)
     update_finder!(neighborfinder, info)
     for i in 1:n_atoms
@@ -142,6 +150,7 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
         else
             force_vector = calculate_F_short(coord_1, coord_2, α, i, j, sys)
             force_short = Point(force_vector...)
+    
             info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
             info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
         end
