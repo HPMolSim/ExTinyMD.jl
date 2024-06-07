@@ -1,17 +1,14 @@
 using ExTinyMD
 using BenchmarkTools
 
-n_atoms = 999
-n_atoms = Int64(round(n_atoms))
-L = 100.0
-
+n_atoms = 99
 L_x = 100.0
 L_y = 100.0
 L_z = 100.0
 
 s = 1.0
 p = 3
-α = 3.0
+α = 1.5
 boundary = Boundary((L_x, L_y, L_z), (1, 1, 1))
 atoms = create_atoms([(n_atoms ÷ 3, Atom(type = 1, mass = 1.0, charge = 1.0)), (n_atoms ÷ 3, Atom(type = 2, mass = 1.0, charge = - 1.0)), (n_atoms ÷ 3, Atom(type = 3, mass = 10.0, charge = 0.0))])
 info = SimulationInfo(n_atoms, atoms, (0.0, L_x, 0.0, L_y, 0.0, L_z), boundary; min_r = 0.1, temp = 1.0)
@@ -33,5 +30,5 @@ sys = MDSys(
     simulator = simulator
 )
 
-@benchmark simulate!(simulator, sys, info, 1) samples = 1 evals = 1
 
+@btime simulate!(simulator, sys, info, 1000)

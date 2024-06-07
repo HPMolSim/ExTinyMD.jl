@@ -16,6 +16,14 @@ dist2(x::Number, y::Number) = abs2(x - y)
 dist2(x::Point, y::Point) = sum(abs2, x - y)
 dist2(x::Point) = sum(abs2, x)
 
+LinearAlgebra.norm(p::Point) = sqrt(dist2(p))
+norm2(p::Point) = dist2(p)
+norm2(p::AbstractVector) = sum(abs2, p)
+Base.zero(p::Point{N, T}) where {N, T} = zero(Point{N, T})
+Base.zero(::Type{Point{N, T}}) where {N, T} = Point(ntuple(_->zero(T), N))
+Base.zeros(::Type{Complex{T}}) where {T} = zero(ComplexF64)
+Base.zeros(::Type{Complex{T}}, p::Int) where {T} = fill(Complex{T}(zero(T), zero(T)), p)
+
 struct Atom{T}
     type::Int
     mass::T
