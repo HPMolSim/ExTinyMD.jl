@@ -74,7 +74,9 @@ function update_rho_k!(interaction::RBEInteractions{T}, n_atoms::Int, p::Int, sa
     rho_k = interaction.rho_k
     fill!(rho_k, zero(Complex{T}))
     for i in 1:p
-        rho_k[i] = sum(sys.atoms[j].charge * exp(1im * dot(samples[i], info.particle_info[j].position)) for j in 1:n_atoms)
+        for j in 1:n_atoms
+            rho_k[i] += sys.atoms[j].charge * exp(1im * dot(samples[i], info.particle_info[j].position))
+        end
     end    
     return rho_k
 end
@@ -85,7 +87,7 @@ function calculate_G(r::Float64, α::Float64)
     return term1 + term2
 end
 
-function calculate_F_short(coord_1, coord_2, α::Float64, i::Int, j::Int, sys::MDSys{T}) where T<:Number
+function calculate_F_short(coord_1::Point, coord_2::Point, α::Float64, i::Int, j::Int, sys::MDSys{T}) where T<:Number
     q1 = sys.atoms[i].charge
     q2 = sys.atoms[j].charge
     r_ij = coord_2 - coord_1
@@ -97,9 +99,12 @@ end
 
 function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number ,T_NIEGHBER<:AbstractNeighborFinder}
     boundary = sys.boundary
-    samples = map(x->Point(T.(x)...), sample(interaction.k_set, weights(interaction.prob), interaction.p))
+    samples = Vector{Point{3,T}}(undef, interaction.p)
+    map!(x -> Point(T.(x)...), samples, sample(interaction.k_set, weights(interaction.prob), interaction.p))
+    
     update_rho_k!(interaction, sys.n_atoms, interaction.p, samples, sys, info)
     update_finder!(neighborfinder, info)
+
     for i in 1:sys.n_atoms
         force_long = calculate_F_long(i, interaction.V, interaction.p, interaction.rho_k, info, samples, sys)
         info.particle_info[i].acceleration += force_long / sys.atoms[i].mass
@@ -108,12 +113,14 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
     for (i, j, r) in neighborfinder.neighbor_list
         coord_1, coord_2, dist_sq = position_check3D(info.particle_info[i].position, info.particle_info[j].position, boundary, interaction.cutoff)
         if iszero(dist_sq)
-            nothing
-        else
-            force_vector = calculate_F_short(coord_1, coord_2, interaction.α, i, j, sys)
-            force_short = Point(force_vector...)
-            info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
-            info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
+            continue
         end
+        force_vector = calculate_F_short(coord_1, coord_2, interaction.α, i, j, sys)
+        force_short = Point(force_vector...)
+        info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
+        info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
     end
 end
+
+
+
