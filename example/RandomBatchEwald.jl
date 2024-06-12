@@ -31,4 +31,4 @@ sys = MDSys(
     simulator = simulator
 )
 
-@benchmark simulate!(simulator, sys, info, 1)
+simulate!(simulator, sys, info, 100)

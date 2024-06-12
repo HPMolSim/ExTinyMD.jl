@@ -7,6 +7,7 @@ struct RBEInteractions{T} <: AbstractInteraction
     cutoff::T
     k_c::T
     rho_k::Vector{Complex{T}}
+    total_energy::Vector{T}
 end
 
 function RBEInteractions(α::T, L_x::Float64, L_y::Float64, L_z::Float64, p::Int, s::Float64) where T
@@ -17,7 +18,8 @@ function RBEInteractions(α::T, L_x::Float64, L_y::Float64, L_z::Float64, p::Int
     k_set = generate_k_set(L_x, L_y, L_z, k_c)
     prob = compute_probabilities(k_set, α, S)
     rho_k = zeros(Complex{Float64}, p)
-    return RBEInteractions{T}(α, p, k_set, prob, V, cutoff, k_c, rho_k)
+    total_energy = Vector{T}()
+    return RBEInteractions{T}(α, p, k_set, prob, V, cutoff, k_c, rho_k, total_energy)
 end
 
 function generate_k_set(L_x::Float64, L_y::Float64, L_z::Float64, k_c::Float64)
@@ -110,6 +112,7 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
         info.particle_info[i].acceleration += force_long / sys.atoms[i].mass
     end
 
+    short_energy = zero(T)
     for (i, j, r) in neighborfinder.neighbor_list
         coord_1, coord_2, dist_sq = position_check3D(info.particle_info[i].position, info.particle_info[j].position, boundary, interaction.cutoff)
         if iszero(dist_sq)
@@ -119,8 +122,65 @@ function update_acceleration!(interaction::RBEInteractions{T}, neighborfinder::T
         force_short = Point(force_vector...)
         info.particle_info[i].acceleration += force_short / sys.atoms[i].mass
         info.particle_info[j].acceleration -= force_short / sys.atoms[j].mass
+
+        short_energy += abs(RBE_Es_pair(sys.atoms[i].charge, sys.atoms[j].charge, interaction.α, dist_sq))
+        short_energy += abs(RBE_Es_self(sys.atoms[i].charge, interaction.α))
     end
+
+    for i in sys.n_atoms
+        short_energy += abs(RBE_Es_self(sys.atoms[i].charge, interaction.α))
+    end
+
+    long_energy = RBE_long_energy(interaction, sys, info)
+    total_energy = short_energy + long_energy
+    push!(interaction.total_energy, total_energy)
 end
 
+function RBE_long_energy(interaction::RBEInteractions{T}, sys::MDSys{T}, info::SimulationInfo{T}) where T
+    energy = zero(T)
+    
+    energy += RBE_long_energy_k0(interaction, sys, info)
 
+    for K in interaction.k_set
+        energy += RBE_long_energy_k(K, interaction, sys, info)
+    end
+    return energy / (4π * interaction.V)
+end
 
+function RBE_long_energy_k(K::Vector{T}, interaction::RBEInteractions{T}, sys::MDSys{T}, info::SimulationInfo{T}) where T
+    k_x, k_y, k_z = K[1], K[2], K[3]
+    L_x, L_y, L_z = sys.boundary.length
+    α = interaction.α
+
+    ρ_k = zero(ComplexF64)
+    for j in 1:sys.n_atoms
+        x_j, y_j, z_j = info.particle_info[j].position
+        ρ_k += sys.atoms[j].charge * exp(1.0im * (k_x * x_j + k_y * y_j + k_z * z_j))
+    end
+
+    k2 = k_x^2 + k_y^2 + k_z^2
+    sum_k = 2π / (L_x * L_y * L_z) * T(ρ_k' * ρ_k) * exp(-k2 / (4 * α^2)) / k2
+
+    return sum_k
+end
+
+function RBE_long_energy_k0(interaction::RBEInteractions{T}, sys::MDSys{T}, info::SimulationInfo{T}) where T
+    L_x, L_y, L_z = sys.boundary.length
+
+    P = Point(zero(T), zero(T), zero(T))
+    for i in 1:sys.n_atoms
+        P += sys.atoms[i].charge * info.particle_info[i].position
+    end
+
+    energy_k0 = 2π * dist2(P, Point(zero(T), zero(T), zero(T))) / (2 * interaction.k_c + one(T)) / (L_x * L_y * L_z)
+
+    return energy_k0
+end
+
+function RBE_Es_pair(q_1::T, q_2::T, α::T, r_sq::T) where {T}
+    return q_1 * q_2 * erfc(sqrt(α) * sqrt(r_sq)) / sqrt(r_sq)
+end
+
+function RBE_Es_self(q::T, α::T) where {T}
+    return - q^2 * α / sqrt(π)
+end
