@@ -1,36 +1,44 @@
 # notice that this function only support 3D systems
 function random_position(n_atoms::TI, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::TI=100) where {T, TI<:Integer}
     atoms_coords = Vector{Point{3, T}}()
-    volume = (place[2] - place[1]) * (place[4] - place[3]) * (place[6] - place[5])
-    max_atoms = volume / (4/3 * π * min_r^3)
-    if n_atoms > max_atoms
-        error("Too much atoms!")
-    end
-    min_r_sq = min_r^2
-    failed_attempts = 0
-    push!(atoms_coords, random_coords(place::NTuple{6, T}))
-
-    while length(atoms_coords) < n_atoms
-        new_coords = random_coords(place::NTuple{6, T})
-        okay = true
-        for old_coords in atoms_coords
-            min_dist_sq = distance_boundary(new_coords, old_coords, boundary)
-            if min_dist_sq < min_r_sq
-                failed_attempts += 1
-                okay = false
-                break
-            end
+    
+    if iszero(min_r)
+        for _ in 1:n_atoms
+            push!(atoms_coords, random_coords(place::NTuple{6, T}))
         end
-        if okay
-            push!(atoms_coords, new_coords)
-            failed_attempts = 0
-        elseif failed_attempts >= max_attempts
-            error("failed to place atoms")
+    else
+        volume = (place[2] - place[1]) * (place[4] - place[3]) * (place[6] - place[5])
+        max_atoms = volume / (4/3 * π * min_r^3)
+        if n_atoms > max_atoms
+            error("Too much atoms!")
+        end
+        min_r_sq = min_r^2
+        failed_attempts = 0
+        push!(atoms_coords, random_coords(place::NTuple{6, T}))
+
+        while length(atoms_coords) < n_atoms
+            new_coords = random_coords(place::NTuple{6, T})
+            okay = true
+            for old_coords in atoms_coords
+                min_dist_sq = distance_boundary(new_coords, old_coords, boundary)
+                if min_dist_sq < min_r_sq
+                    failed_attempts += 1
+                    okay = false
+                    break
+                end
+            end
+            if okay
+                push!(atoms_coords, new_coords)
+                failed_attempts = 0
+            elseif failed_attempts >= max_attempts
+                error("failed to place atoms")
+            end
         end
     end
 
     return atoms_coords
 end
+
 
 function random_coords(place::NTuple{6, T}) where T
     return Point((place[2] - place[1]) * rand(T), (place[4] - place[3]) * rand(T), (place[6] - place[5]) * rand(T)) + Point(place[1], place[3], place[5])
