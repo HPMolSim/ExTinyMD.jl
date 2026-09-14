@@ -2084,7 +2084,7 @@ end
 
 function coulomb_force(icm::ICM{T}, poses, charges; neighbor_list = nothing) where {T}
     F = [zero(SVector{3,T}) for _ in 1:icm.n_atoms]
-    return coulomb_force!(F, icm, poses, charges)
+    return coulomb_force!(F, icm, poses, charges; neighbor_list = neighbor_list)
 end
 
 """
