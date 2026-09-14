@@ -70,10 +70,21 @@ adapter.
 ```julia
 plan = Ewald3D(n_atoms, L; α = 0.2, s = 4.0, ϵ = 1.0, ϵ_inf = Inf)
 
-E = energy(plan, poses, charges)             # ::T
-F = force(plan, poses, charges)              # ::Vector{SVector{3,T}}
-force!(F, plan, poses, charges)              # in-place
+E = coulomb_energy(plan, poses, charges)     # ::T
+F = coulomb_force(plan, poses, charges)      # ::Vector{SVector{3,T}}
+coulomb_force!(F, plan, poses, charges)      # in-place
 ```
+
+The queries are named `coulomb_*` rather than `energy` / `force`: `ExTinyMD.energy` already
+exists with the four-argument MD signature of §4.2, and adding a three-argument overload of
+an exported name that differs only in arity invites silent dispatch surprises. The component
+kernels follow the same pattern — `short_energy` / `short_force!` and `long_energy` /
+`long_force!`.
+
+Accumulation contract: component `*_force!` functions **accumulate** into the buffer they are
+given, and the composite `coulomb_force!` **zeroes** it first before calling them. Getting
+this backwards produces a force that grows by one step's worth on every call, which an
+energy test cannot see.
 
 - `poses::AbstractVector` of any 3-component indexable value. `Vector{SVector{3,T}}` is
   canonical and documented; kernels access `p[1], p[2], p[3]` only, so `Vector{Point{3,T}}`
@@ -166,10 +177,20 @@ E_s = 1/(4πϵ) [ Σ_{i<j, r<r_c} q_i q_j erfc(α r_ij)/r_ij  −  (α/√π) Σ
 ```
 
 Fields: `α`, `r_c`, `ϵ`, `n_atoms`, a boundary convention tag, and a cell list. The
-convention tag selects minimum-image handling: `Periodic3D` uses `position_check3D`
-semantics, `PeriodicQ2D` uses `position_checkQ2D` (periodic in x,y only). This is the single
-axis on which Ewald3D and Ewald2D differ in their short-range part; everything else is
-shared.
+convention tag selects which axes wrap: `Periodic3D` wraps all three, `PeriodicQ2D` wraps x
+and y only. This is the single axis on which Ewald3D and Ewald2D differ in their short-range
+part; everything else is shared.
+
+Minimum-image displacement is computed as `dx - L*round(dx/L)` per periodic axis, giving the
+**nearest** image. This deviates deliberately from ExTinyMD's `position_check3D` /
+`position_checkQ2D`, which scan `m ∈ -1:1` and return the *first* image found inside the
+cutoff together with a `dist_sq` of exactly zero when none is. Two consequences motivated the
+change: "first inside cutoff" and "nearest" coincide only while `r_c < L/2`, so the helpers
+are silently wrong above that; and the zero-return sentinel is indistinguishable from a
+genuine coincident pair, which is why every caller in EwaldSummations carries an
+`iszero(r_sq)` guard. The pair distance `r` reported by CellListMap is already a true
+minimum-image distance, so energies can use it directly and only forces need the
+displacement vector.
 
 Force, analytic:
 
@@ -242,8 +263,24 @@ Two structural changes from the reference:
 
 ### 5.5 `icm.jl` — `ICM{Inner}` and ELC
 
-ICM is a wrapper over any inner interaction, not a per-method variant. This is what makes
-ICM+Ewald2D, ICM+Ewald3D+ELC and ICM+PME3D+ELC one implementation instead of three.
+ICM decorates a long-range solver and supplies its own short-range part. It is not a
+per-method variant, which is what makes ICM+Ewald2D, ICM+Ewald3D+ELC and ICM+PME3D+ELC one
+implementation instead of three:
+
+```julia
+struct ICM{T, L}        # L is any long-range solver: Ewald2DLong, Ewald3DLong, PME3DLong
+    long::L             # called on the reflected arrays, forces taken on real indices only
+    short::ICMShort{T}  # real-real / real-image split; cannot reuse EwaldShort
+    ...
+end
+```
+
+The long-range part *is* a pure decoration — evaluate the inner solver on the reflected
+position/charge arrays, then keep only the first `n_atoms` force entries. The short-range
+part is not: `EwaldShort` treats all pairs alike, whereas ICM must weight real–image
+energies by ½, accumulate real–image forces on the real index only, and sum self-energy over
+real particles only. `ICMShort` is therefore a separate kernel — one kernel, shared by all
+three ICM methods, rather than three.
 
 `ICM_reflect(γ, L, N_image, poses, charges) -> (ref_poses, ref_charges)` builds the image
 series, real particles first, then images interleaved up/down. Recurrence from
@@ -380,7 +417,23 @@ not a licence to change the formula. Stop and surface it.
 ## 8. Testing
 
 Test files under `test/electrostatics/`, included from `test/runtests.jl`.
-`EwaldSummations` is added to `[extras]` and the `test` target as the independent oracle.
+
+**The oracle is self-contained.** `test/electrostatics/reference.jl` implements a
+deliberately naive direct lattice sum and a central-finite-difference gradient helper from
+scratch, in the test suite, with no external package. ExTinyMD's suite therefore takes on no
+dependency on the packages this stdlib supersedes — EwaldSummations pins `ExTinyMD = "0.2"`
+and could not be resolved into the test target without bumping it first, and depending on
+the code being replaced for validation of its replacement is backwards.
+
+The naive sum is itself validated against a literature value — the NaCl rock-salt Madelung
+constant, −1.7475645946… — which is an absolute external check that no amount of internal
+consistency can substitute for.
+
+Cross-validation against EwaldSummations is kept, but as a separate migration check in
+`test/validation/compare_ewaldsummations.jl`, excluded from `runtests.jl` and run in a
+dev'd environment where both packages are local path dependencies. Its purpose is to prove
+the new stdlib reproduces the old implementations before Phase 3 deletes them — a one-time
+migration gate, not a permanent test dependency.
 
 ### 8.1 Unit
 
