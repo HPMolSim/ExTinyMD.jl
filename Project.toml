@@ -2,7 +2,7 @@ name = "ExTinyMD"
 uuid = "fec76197-d59f-46dd-a0ed-76a83c21f7aa"
 authors = ["Xuanzhao Gao <xz.gao@connect.ust.hk>"]
 repo = "https://github.com/HPMolSim/ExTinyMD.jl"
-version = "0.2.7"
+version = "0.3.0"
 
 [deps]
 CellListMap = "69e1c6dd-3888-40e6-b3c8-31ac5f578864"
@@ -13,7 +13,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
-CellListMap = "0.9"
+CellListMap = "0.10"
 DelimitedFiles = "1"
 Distributions = "0.25"
 LinearAlgebra = "1"
