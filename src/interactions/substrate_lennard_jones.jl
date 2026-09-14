@@ -19,7 +19,7 @@ function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::S
         if zero(T) < dz < interaction.cutoff
             temp = (interaction.σ)^2 / dz^2
             lj_force = T(24) * interaction.ϵ * (T(2) * temp^T(6) - temp^T(3)) / dz
-            mass = atoms[i].mass
+            mass = atoms[id].mass
             info.particle_info[i].acceleration += Point(zero(T), zero(T), lj_force / mass)
         end
     end
@@ -30,7 +30,7 @@ function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::S
         if zero(T) < dz < interaction.cutoff
             temp = (interaction.σ)^2 / dz^2
             lj_force = - T(24) * interaction.ϵ * (T(2) * temp^T(6) - temp^T(3)) / dz
-            mass = atoms[i].mass
+            mass = atoms[id].mass
             info.particle_info[i].acceleration += Point(zero(T), zero(T), lj_force / mass)
         end
     end
