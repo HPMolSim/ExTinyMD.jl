@@ -1225,6 +1225,29 @@ end
     end
 end
 
+@testset "Ewald3D forwards ϵ to both parts" begin
+    # Every term in the Ewald energy carries a 1/ϵ — the short-range sum, the
+    # k-space sum, and the surface term alike — so doubling ϵ must halve the energy
+    # and the force exactly. Nothing else in this file passes a non-default ϵ, so
+    # without this test a dropped or mis-forwarded ϵ is invisible: the composite
+    # would agree with separately-built parts that also defaulted to ϵ = 1.
+    Random.seed!(20260922)
+    n = 12
+    L = (12.0, 12.0, 12.0)
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    E1 = coulomb_energy(Ewald3D(n, L; α = 0.8, s = 4.0, ϵ = 1.0), poses, charges)
+    E2 = coulomb_energy(Ewald3D(n, L; α = 0.8, s = 4.0, ϵ = 2.0), poses, charges)
+    @test isapprox(E2, E1 / 2, rtol = 1e-12)
+
+    F1 = coulomb_force(Ewald3D(n, L; α = 0.8, s = 4.0, ϵ = 1.0), poses, charges)
+    F2 = coulomb_force(Ewald3D(n, L; α = 0.8, s = 4.0, ϵ = 2.0), poses, charges)
+    for i in 1:n
+        @test isapprox(F2[i], F1[i] / 2, rtol = 1e-12)
+    end
+end
+
 @testset "Ewald3D net force vanishes" begin
     # Newton's third law: the total force on a periodic neutral system is zero
     Random.seed!(20260921)
