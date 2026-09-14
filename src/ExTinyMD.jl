@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles, SpecialFunctions
 
 export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
 export energy
@@ -10,6 +10,8 @@ export SubNeighborFinder, CellList3D, CellListDir3D, CellListDirQ2D, CellListQ2D
 export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
 export SubLennardJones, LennardJones, ExternalField
+
+export Periodic3D, PeriodicQ2D, ewald_cutoffs, check_neutrality
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
@@ -39,6 +41,9 @@ include("MD_core/recorder/energy_logger.jl")
 include("interactions/lennard_jones.jl")
 include("interactions/substrate_lennard_jones.jl")
 include("interactions/external_field.jl")
+
+# electrostatics standard library
+include("interactions/electrostatics/common.jl")
 
 # Tools
 include("Tools/data_loader.jl")
