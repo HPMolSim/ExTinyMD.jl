@@ -887,8 +887,16 @@ finite-difference energy gradient."
 - Consumes: `k_set_3D`, `ewald_cutoffs` from Task 3.
 - Produces:
   - `Ewald3DLong(n_atoms::Int, L::NTuple{3,T}; α, s, ϵ=one(T), ϵ_inf=T(Inf))`
-  - `long_energy(long::Ewald3DLong{T}, poses, charges)::T`
-  - `long_force!(F::Vector{SVector{3,T}}, long::Ewald3DLong{T}, poses, charges)` — accumulates
+  - `long_energy(long::Ewald3DLong{T}, poses, charges; n_target::Int = long.n_atoms)::T`
+  - `long_force!(F::Vector{SVector{3,T}}, long::Ewald3DLong{T}, poses, charges; n_target::Int = long.n_atoms)` — accumulates
+
+`n_target` exists for ICM (Task 8), which needs the energy summed over **real particles as
+targets** against **all reflected charges as sources**. When `n_target == long.n_atoms`
+(the default, and every non-ICM use) the target and source sets coincide and the
+expressions reduce to the ordinary Ewald ones. Do not omit it: Task 8 depends on it, and
+summing targets over the image charges too would add unphysical image-image
+self-interaction. Controller-verified: real-only targets make ICM+Ewald2D and
+ICM+Ewald3D+ELC agree to 4.7e-8, while all-reflected targets leave them 5.8% apart.
   - fields `α`, `k_c`, `r_c`, `ϵ`, `ϵ_inf`, `L`, `n_atoms`, `k_set`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1046,46 +1054,56 @@ end
     return P
 end
 
-function long_energy(long::Ewald3DLong{T}, poses, charges) where {T}
-    α, n = long.α, long.n_atoms
+function long_energy(long::Ewald3DLong{T}, poses, charges;
+                     n_target::Int = long.n_atoms) where {T}
+    α, n = long.α, long.n_atoms          # n = number of SOURCE charges
     V = long.L[1] * long.L[2] * long.L[3]
 
     E = zero(T)
     @inbounds for (k_x, k_y, k_z, k) in long.k_set
-        ρ = _structure_factor(k_x, k_y, k_z, poses, charges, n)
-        E += abs2(ρ) * exp(-k^2 / (4 * α^2)) / k^2
+        ρ_src = _structure_factor(k_x, k_y, k_z, poses, charges, n)
+        # real(conj(ρ_src) * ρ_tgt) collapses to abs2(ρ) when the sets coincide,
+        # so there is one code path, not two.
+        ρ_tgt = n_target == n ? ρ_src :
+                _structure_factor(k_x, k_y, k_z, poses, charges, n_target)
+        E += real(conj(ρ_src) * ρ_tgt) * exp(-k^2 / (4 * α^2)) / k^2
     end
     E /= (2 * V * long.ϵ)
 
     # Surface term. 1/(2*Inf+1) evaluates to zero, so the conducting case needs no branch.
-    P = _dipole(poses, charges, n, T)
-    E += sum(abs2, P) / (2 * V * long.ϵ * (2 * long.ϵ_inf + one(T)))
+    P_src = _dipole(poses, charges, n, T)
+    P_tgt = n_target == n ? P_src : _dipole(poses, charges, n_target, T)
+    E += dot(P_tgt, P_src) / (2 * V * long.ϵ * (2 * long.ϵ_inf + one(T)))
 
     return E
 end
 
 function long_force!(F::Vector{SVector{3,T}}, long::Ewald3DLong{T}, poses,
-                     charges) where {T}
-    α, n = long.α, long.n_atoms
+                     charges; n_target::Int = long.n_atoms) where {T}
+    α, n = long.α, long.n_atoms          # n = number of SOURCE charges
     V = long.L[1] * long.L[2] * long.L[3]
     pref = one(T) / (V * long.ϵ)
 
+    # Sources span all charges; the force is written only for the first n_target of
+    # them. The coefficient is the full one — no 1/2 — matching the image-charge
+    # convention, which is self-consistent because an image moves at twice the rate
+    # of its source. Controller-verified against finite differences to 1e-7.
     @inbounds for (k_x, k_y, k_z, k) in long.k_set
-        ρ = _structure_factor(k_x, k_y, k_z, poses, charges, n)
+        ρ_src = _structure_factor(k_x, k_y, k_z, poses, charges, n)
         D = exp(-k^2 / (4 * α^2)) / k^2
         kvec = SVector{3,T}(k_x, k_y, k_z)
-        for i in 1:n
+        for i in 1:n_target
             p = poses[i]
             phase = cis(-(k_x * T(p[1]) + k_y * T(p[2]) + k_z * T(p[3])))
-            F[i] -= (pref * charges[i] * D * imag(ρ * phase)) * kvec
+            F[i] -= (pref * charges[i] * D * imag(ρ_src * phase)) * kvec
         end
     end
 
-    # Surface term force: F_i = -q_i P / (V ϵ (2ϵ_inf + 1))
-    P = _dipole(poses, charges, n, T)
+    # Surface term force: F_i = -q_i P_src / (V ϵ (2ϵ_inf + 1))
+    P_src = _dipole(poses, charges, n, T)
     surf = one(T) / (V * long.ϵ * (2 * long.ϵ_inf + one(T)))
-    @inbounds for i in 1:n
-        F[i] -= (surf * charges[i]) * P
+    @inbounds for i in 1:n_target
+        F[i] -= (surf * charges[i]) * P_src
     end
 
     return F
@@ -1349,8 +1367,12 @@ git commit -m "feat: add EwaldInteraction composite and Ewald3D constructor"
 - Consumes: `k_set_2D` (Task 3), `EwaldShort` with `PeriodicQ2D` (Task 4), `EwaldInteraction` (Task 6).
 - Produces:
   - `Ewald2DLong(n_atoms::Int, L::NTuple{3,T}; α, s, ϵ=one(T))`
-  - `long_energy(long::Ewald2DLong{T}, poses, charges)::T`
-  - `long_force!(F, long::Ewald2DLong{T}, poses, charges)` — accumulates
+  - `long_energy(long::Ewald2DLong{T}, poses, charges; n_target::Int = long.n_atoms)::T`
+  - `long_force!(F, long::Ewald2DLong{T}, poses, charges; n_target::Int = long.n_atoms)` — accumulates
+
+`n_target` has the same meaning as in Task 5: the `i` (target) loops run over
+`1:n_target` while the `j` (source) loops run over all `1:long.n_atoms`. The default makes
+them coincide. ICM (Task 8) is the only caller that passes a smaller value.
   - `Ewald2D(n_atoms, L; α, s, ϵ=one(T))::EwaldInteraction`
 
 - [ ] **Step 1: Write the failing tests**
@@ -1495,14 +1517,15 @@ Base.show(io::IO, l::Ewald2DLong) =
     return exp(kz) * erfc(arg)
 end
 
-function long_energy(long::Ewald2DLong{T}, poses, charges) where {T}
-    α, n = long.α, long.n_atoms
+function long_energy(long::Ewald2DLong{T}, poses, charges;
+                     n_target::Int = long.n_atoms) where {T}
+    α, n = long.α, long.n_atoms          # n = number of SOURCE charges
     A = long.L[1] * long.L[2]
 
     E = zero(T)
 
-    # k = 0 term
-    @inbounds for i in 1:n, j in 1:n
+    # k = 0 term. Targets i run to n_target, sources j over all n.
+    @inbounds for i in 1:n_target, j in 1:n
         z = T(poses[i][3]) - T(poses[j][3])
         E -= charges[i] * charges[j] *
              (exp(-(α * z)^2) / (α * sqrt(T(π))) + z * erf(α * z)) / (4 * A)
@@ -1511,7 +1534,7 @@ function long_energy(long::Ewald2DLong{T}, poses, charges) where {T}
     # k != 0 terms
     @inbounds for (k_x, k_y, k) in long.k_set
         acc = zero(T)
-        for i in 1:n
+        for i in 1:n_target
             p_i = poses[i]
             for j in 1:n
                 p_j = poses[j]
@@ -1530,13 +1553,13 @@ function long_energy(long::Ewald2DLong{T}, poses, charges) where {T}
 end
 
 function long_force!(F::Vector{SVector{3,T}}, long::Ewald2DLong{T}, poses,
-                     charges) where {T}
-    α, n = long.α, long.n_atoms
+                     charges; n_target::Int = long.n_atoms) where {T}
+    α, n = long.α, long.n_atoms          # n = number of SOURCE charges
     A = long.L[1] * long.L[2]
     ϵ = long.ϵ
 
     # k = 0 term: F_i,z = q_i Σ_j q_j erf(α z_ij) / (2 L_x L_y ϵ)
-    @inbounds for i in 1:n
+    @inbounds for i in 1:n_target
         fz = zero(T)
         for j in 1:n
             z = T(poses[i][3]) - T(poses[j][3])
@@ -1547,7 +1570,7 @@ function long_force!(F::Vector{SVector{3,T}}, long::Ewald2DLong{T}, poses,
 
     # k != 0 terms
     @inbounds for (k_x, k_y, k) in long.k_set
-        for i in 1:n
+        for i in 1:n_target
             p_i = poses[i]
             sx = zero(T); sy = zero(T); sz = zero(T)
             for j in 1:n
@@ -1735,19 +1758,35 @@ end
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
     # r_c = 2.35 < min(Lx,Ly)/2 = 2.5. ICMEwald3D builds its Ewald3DLong for the
-    # z-padded box (5, 5, 30), whose smallest side is still 5, so the same bound holds.
-    # N_image = 3, N_pad = 1 keeps the k-set affordable; the ELC truncation error goes
-    # like exp(-2π(L_pad,z − H)/max(Lx,Ly)), which is negligible here.
+    # z-padded box (5, 5, 50), whose smallest side is still 5, so the same bound holds.
+    #
+    # N_pad must be large enough that periodic replicas of the whole *image stack*
+    # do not interact — not merely the real slab. Controller-measured disagreement
+    # between the two routes at N_image = 3:
+    #   N_pad = 1  ->  9.4e-3     (padding too small; this is NOT an algorithm error)
+    #   N_pad = 2  ->  4.7e-8
+    #   N_pad = 3  ->  4.8e-8
+    # and at N_image = 5, N_pad = 2 still gives 8.5e-4, needing N_pad >= 3.
+    # With adequate padding the two algorithms agree to near machine precision, so
+    # the tolerance here is 1e-6 rather than the 1e-3 an earlier draft used.
     E_2d = coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = 3),
                           poses, charges)
     E_3d = coulomb_energy(ICMEwald3D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = 3,
-                                     N_pad = 1), poses, charges)
-    @test isapprox(E_2d, E_3d, rtol = 1e-3)
+                                     N_pad = 2), poses, charges)
+    @test isapprox(E_2d, E_3d, rtol = 1e-6)
 end
 
 @testset "ICM force matches -grad(energy)" begin
-    # See spec §7: the ICM force convention is ported, not re-derived. If this test
-    # fails, STOP and report it — do not change the formula to make it pass.
+    # Spec §7 flagged the ICM force convention as a risk: the energy halves
+    # real-image pairs while the force uses the full field, which looks inconsistent.
+    # It is not. An image moves at twice the rate of its source, and that factor of 2
+    # cancels the 1/2 exactly. The controller verified this against finite differences
+    # in a standalone implementation before this task was dispatched: worst relative
+    # error 1.0e-7 over all components. So this test is expected to PASS.
+    #
+    # If it nevertheless fails, STOP and report it — do not change the formula to make
+    # it pass. A failure now means the port diverges from the verified convention,
+    # which is a bug in the port, not a licence to adjust the physics.
     #
     # Note on what is NOT tested here: an earlier draft of this plan hand-rolled a
     # direct-sum ICM oracle that applied its own real-image weighting. That tests the
@@ -1768,7 +1807,7 @@ end
     f = p -> coulomb_energy(inter, p, charges)
     for i in 1:n, d in 1:3
         @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
-                       rtol = 1e-3, atol = 1e-7)
+                       rtol = 1e-5, atol = 1e-8)
     end
 end
 ```
@@ -2014,8 +2053,14 @@ end
 function coulomb_energy(icm::ICM{T}, poses, charges; neighbor_list = nothing) where {T}
     n_ref = icm_reflect!(icm.ref_poses, icm.ref_charges, icm.γ, icm.L, icm.N_image,
                          poses, charges)
+    # n_target = n_atoms is load-bearing: the long-range sum runs over REAL
+    # particles as targets against ALL reflected charges as sources. Letting the
+    # targets range over the images too would add unphysical image-image
+    # self-interaction. Controller-verified: with real-only targets ICM+Ewald2D and
+    # ICM+Ewald3D+ELC agree to 4.7e-8; with all-reflected targets they are 5.8% apart.
     E = icm_short_energy(icm.short, icm.ref_poses, icm.ref_charges) +
-        long_energy(icm.long, icm.ref_poses, icm.ref_charges)
+        long_energy(icm.long, icm.ref_poses, icm.ref_charges;
+                    n_target = icm.n_atoms)
     icm.elc && (E += _elc_energy(icm, n_ref))
     return E
 end
@@ -2026,7 +2071,8 @@ function coulomb_force!(F::Vector{SVector{3,T}}, icm::ICM{T}, poses, charges;
                          poses, charges)
     fill!(icm.ref_force, zero(SVector{3,T}))
     icm_short_force!(icm.ref_force, icm.short, icm.ref_poses, icm.ref_charges)
-    long_force!(icm.ref_force, icm.long, icm.ref_poses, icm.ref_charges)
+    long_force!(icm.ref_force, icm.long, icm.ref_poses, icm.ref_charges;
+                n_target = icm.n_atoms)
     icm.elc && _elc_force!(icm.ref_force, icm, n_ref)
 
     # Fold back: keep the real particles only.
