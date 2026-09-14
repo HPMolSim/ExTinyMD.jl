@@ -139,7 +139,7 @@ this implementation: `Ewald3D`'s total energy is independent of `α` to about
 
 ```julia
 total3d(α) = coulomb_energy(Ewald3D(n, L; α = α, s = 4.0), poses, charges)
-total3d(0.4), total3d(0.5), total3d(0.6)   # should agree to ~1e-8
+total3d(0.45), total3d(0.5), total3d(0.55)   # r_c = 8.89, 8.0, 7.27 (all < min(L)/2 = 10); should agree to ~1e-8
 ```
 
 ```@docs
