@@ -94,11 +94,17 @@ end
 function icm_short_energy(short::ICMShort{T}, ref_poses::Vector{SVector{3,T}},
                           ref_charges::Vector{T}) where {T}
     n, α, r_c = short.n_atoms, short.α, short.r_c
+    L = short.L
     update!(short.cell_list, xpositions = ref_poses)
     nb = neighborlist!(short.cell_list)
 
     E = zero(T)
-    @inbounds for (i, j, r) in nb
+    # As in `short_energy` (short.jl), the cell list's own `r` is not trusted — it
+    # is recomputed from `min_image_disp` so this does not silently depend on the
+    # invariant that ICMShort's z-padding exceeds 2*r_c.
+    @inbounds for (i, j, _) in nb
+        d = min_image_disp(ref_poses[i], ref_poses[j], L, PeriodicQ2D())
+        r = sqrt(sum(abs2, d))
         (r < r_c && r > zero(T)) || continue
         both_real = (i <= n) && (j <= n)
         either_real = (i <= n) || (j <= n)

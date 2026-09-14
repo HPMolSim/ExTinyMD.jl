@@ -157,3 +157,46 @@ end
     @test isapprox(energy(inter, finder, sys, info),
                    coulomb_energy(inter, poses, charges), rtol = 1e-10)
 end
+
+@testset "adapter energy is independent of which finder supplies candidate pairs" begin
+    # FIX 1 regression. `short_energy` must treat a supplied neighbour list as
+    # candidate pairs only and recompute `r` itself:
+    #   - CellListQ2D / CellListDirQ2D build their cell list over in-plane
+    #     SVector{2,T} positions, so their reported `r` is the in-plane distance,
+    #     not the true 3-D distance.
+    #   - AllNeighborFinder reports r = 0 for every pair.
+    # Every finder must therefore give the same coulomb_energy as the plan's own
+    # cell list (neighbor_list = nothing).
+    Random.seed!(20260935)
+    n, L = 20, 10.0
+    boundary, atoms, info = _charged_system(n, L)
+    poses = [SVector(p.position[1], p.position[2], p.position[3])
+             for p in info.particle_info]
+    charges = [atoms[p.id].charge for p in info.particle_info]
+
+    inter3d = Ewald3D(n, (L, L, L); α = 1.0, s = 4.0)   # r_c = 4.0 < L/2 = 5
+    E_ref3d = coulomb_energy(inter3d, poses, charges)
+
+    for finder in (CellList3D(info, inter3d.short.r_c, boundary, 1),
+                  CellListDir3D(info, inter3d.short.r_c, boundary, 1),
+                  AllNeighborFinder(n))
+        sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
+                    interactions = [(inter3d, finder)],
+                    loggers = [TemperatureLogger(100; output = false)],
+                    simulator = VerletProcess(dt = 0.001))
+        @test isapprox(energy(inter3d, finder, sys, info), E_ref3d, rtol = 1e-10)
+    end
+
+    inter2d = Ewald2D(n, (L, L, L); α = 1.0, s = 4.0)   # r_c = 4.0 < min(Lx,Ly)/2 = 5
+    E_ref2d = coulomb_energy(inter2d, poses, charges)
+
+    for finder in (CellListQ2D(info, inter2d.short.r_c, boundary, 1),
+                  CellListDirQ2D(info, inter2d.short.r_c, boundary, 1),
+                  NoNeighborFinder(Float64))
+        sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
+                    interactions = [(inter2d, finder)],
+                    loggers = [TemperatureLogger(100; output = false)],
+                    simulator = VerletProcess(dt = 0.001))
+        @test isapprox(energy(inter2d, finder, sys, info), E_ref2d, rtol = 1e-10)
+    end
+end

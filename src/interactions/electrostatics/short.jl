@@ -63,9 +63,22 @@ function short_energy(short::EwaldShort{T}, poses, charges;
                       neighbor_list = nothing) where {T}
     nb = neighbor_list === nothing ? _refresh_neighbors!(short, poses) : neighbor_list
     α, r_c = short.α, short.r_c
+    conv, L = short.convention, short.L
 
     E = zero(T)
-    @inbounds for (i, j, r) in nb
+    # A supplied `neighbor_list` is treated as CANDIDATE PAIRS ONLY: its own `r` is
+    # never trusted. `CellListQ2D`/`CellListDirQ2D` build their list over in-plane
+    # SVector{2,T} positions, so their `r` is the in-plane distance, not the true
+    # 3-D distance the energy needs; `AllNeighborFinder` reports `r = 0` for every
+    # pair. Recomputing `r` from `min_image_disp` is exact for every finder: an
+    # in-plane list is always a superset of the true-r-below-cutoff pair set (in-
+    # plane distance ≤ 3-D distance), so filtering on the recomputed `r` recovers
+    # the correct pair set rather than merely rejecting bad data. This also keeps
+    # the image convention (wrapped vs. unwrapped z) consistent with
+    # `short_force!`, which already recomputes `r` this way.
+    @inbounds for (i, j, _) in nb
+        d = min_image_disp(poses[i], poses[j], L, conv)
+        r = sqrt(sum(abs2, d))
         (r < r_c && r > zero(T)) || continue
         E += charges[i] * charges[j] * erfc(α * r) / r
     end
