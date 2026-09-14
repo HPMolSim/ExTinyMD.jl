@@ -181,6 +181,7 @@ Everything after this task is validated against this file, so it is built and ve
 - Produces:
   - `naive_energy_3D(poses, charges, L::NTuple{3,T}, n_shell::Int; ϵ=one(T))::T` — direct lattice sum over `±n_shell` images in all three axes, `1/(4πϵ)` prefactor, self-pair excluded within the home cell.
   - `naive_energy_Q2D(poses, charges, L::NTuple{3,T}, n_shell::Int; ϵ=one(T))::T` — same but images in x,y only.
+  - `naive_energy_Q2D_extrap(poses, charges, L, n1::Int, n2::Int; ϵ=one(T))::T` — Richardson extrapolation of the quasi-2D sum, eliminating its `1/n_shell` tail.
   - `fd_gradient(f, poses, i::Int, d::Int; h)::T` — central difference of scalar `f(poses)` w.r.t. component `d` of particle `i`.
   - `nacl_lattice(n_cells::Int, a::T)` → `(poses::Vector{SVector{3,T}}, charges::Vector{T}, L::NTuple{3,T})`, a rock-salt configuration.
 
@@ -229,6 +230,25 @@ function naive_energy_Q2D(poses, charges, L::NTuple{3,T}, n_shell::Int; ϵ::T = 
         end
     end
     return E / (2 * 4π * ϵ)
+end
+
+"""
+Richardson-extrapolated quasi-2D lattice sum.
+
+The truncated 2D sum converges as `1/n_shell` — measured relative error 13.5%, 6.9%,
+4.6%, 3.5% at `n_shell` = 10, 20, 30, 40 — which is far too slow to compare against an
+Ewald result directly. Eliminating the `1/n` term with two shell counts reaches about
+3e-4 at `(30, 60)`:
+
+    E_inf ≈ (n2*E(n2) − n1*E(n1)) / (n2 − n1)
+
+Use this, not the raw sum, whenever comparing against a converged method.
+"""
+function naive_energy_Q2D_extrap(poses, charges, L::NTuple{3,T}, n1::Int, n2::Int;
+                                 ϵ::T = one(T)) where T
+    E1 = naive_energy_Q2D(poses, charges, L, n1; ϵ = ϵ)
+    E2 = naive_energy_Q2D(poses, charges, L, n2; ϵ = ϵ)
+    return (n2 * E2 - n1 * E1) / (n2 - n1)
 end
 
 "Central finite difference of `f(poses)` w.r.t. component `d` of particle `i`."
@@ -283,11 +303,30 @@ end
     @test sum(charges) == 0
 
     E = naive_energy_3D(poses, charges, L, 12)
-    M = -E * 4π * r_nn / length(charges)
-    # Direct summation over cubic shells converges to the Madelung constant only
-    # slowly and non-monotonically, so the tolerance is loose on purpose. The point
-    # is that the oracle lands on the literature value at all.
-    @test isapprox(M, 1.7475645946, atol = 5e-2)
+    # E_total = -N*M / (2 * 4π * r_nn) in this unit convention. The 2 is the pair
+    # double-counting factor naive_energy_3D already applies, so recovering M needs
+    # it back — hence 8π, not 4π. Measured sequence (controller-verified against an
+    # independent Ewald3D implementation):
+    #   n_shell =  4  ->  M = 1.7475584843
+    #   n_shell =  8  ->  M = 1.7475641146
+    #   n_shell = 12  ->  M = 1.7475644920
+    #   n_shell = 16  ->  M = 1.7475645609
+    #   n_shell = 20  ->  M = 1.7475645804
+    M = -E * 8π * r_nn / length(charges)
+    @test isapprox(M, 1.7475645946, atol = 1e-5)
+end
+
+@testset "oracle: Richardson extrapolation algebra" begin
+    # A sequence that is exactly E_inf + c/n must be inverted exactly, from any
+    # pair of shell counts. Accuracy on a real lattice sum is validated in Task 7,
+    # where a converged Ewald2D reference exists; asserting it here would be
+    # circular.
+    E_inf, c = -0.25, 1.5
+    fake(n) = E_inf + c / n
+    ex(n1, n2) = (n2 * fake(n2) - n1 * fake(n1)) / (n2 - n1)
+    @test isapprox(ex(10, 20), E_inf; rtol = 1e-12)
+    @test isapprox(ex(30, 60), E_inf; rtol = 1e-12)
+    @test isapprox(ex(40, 80), E_inf; rtol = 1e-12)
 end
 
 @testset "oracle: Q2D reduces to 3D for a tall box" begin
@@ -330,13 +369,14 @@ real numbers.
 ```julia
 for n_shell in (8, 12, 16, 20)
     E = naive_energy_3D(poses, charges, L, n_shell)
-    println("n_shell=", n_shell, "  M=", -E * 4π * (a/2) / length(charges))
+    println("n_shell=", n_shell, "  M=", -E * 8π * (a/2) / length(charges))
 end
 ```
 
-Cubic-shell truncation of NaCl converges slowly and non-monotonically. The 8-ion cube is
-neutral with zero dipole and zero quadrupole, so it should reach the literature value to
-about 1e-2; report the sequence either way.
+The 8-ion cube is neutral with zero dipole and zero quadrupole, so cubic-shell truncation
+converges quickly here — about 1e-7 by n_shell = 12. Report the sequence either way. If your
+numbers differ materially from the ones quoted in the test above, say so rather than
+adjusting anything: that would mean a real bug on one side or the other.
 
 - [ ] **Step 3: Commit**
 
@@ -867,7 +907,8 @@ Create `test/electrostatics/test_long_ewald3d.jl`:
     long  = Ewald3DLong(n, L; α = α, s = s)
     E_ewald = short_energy(short, poses, charges) + long_energy(long, poses, charges)
 
-    M = -E_ewald * 4π * (a / 2) / n
+    # 8π, not 4π — see the oracle's Madelung testset for the derivation of the 2.
+    M = -E_ewald * 8π * (a / 2) / n
     @test isapprox(M, 1.7475645946, rtol = 1e-4)
 end
 
@@ -1341,10 +1382,17 @@ end
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
     E_ewald  = coulomb_energy(Ewald2D(n, L; α = 1.7, s = 4.0), poses, charges)   # r_c = 2.35 < 2.5
-    E_direct = naive_energy_Q2D(poses, charges, L, 40)
-    # The 2D lattice sum converges slowly in the number of image shells; 40 shells
-    # with a neutral configuration gets to roughly this level.
+
+    # The RAW 2D lattice sum is useless as a reference here: it converges as
+    # 1/n_shell and is still 3.5% off at n_shell = 40. Use the extrapolated form,
+    # which reaches ~3e-4 at (30, 60). Controller-measured, raw vs this Ewald value:
+    #   n_shell = 10, 20, 30, 40, 60, 80  ->  13.5%, 6.9%, 4.6%, 3.5%, 2.3%, 1.7%
+    E_direct = naive_energy_Q2D_extrap(poses, charges, L, 30, 60)
     @test isapprox(E_ewald, E_direct, rtol = 1e-3)
+
+    # and confirm the extrapolation is doing the work, not a loose tolerance
+    @test abs(E_ewald - E_direct) <
+          abs(E_ewald - naive_energy_Q2D(poses, charges, L, 60))
 end
 
 @testset "Ewald2D force matches -grad(energy)" begin
@@ -1655,45 +1703,25 @@ end
                    coulomb_energy(plain, poses, charges), rtol = 1e-9)
 end
 
-@testset "ICM+Ewald2D against ICM + quasi-2D direct sum" begin
+@testset "ICM image series converges in N_image" begin
+    # For |γ| < 1 the image series is geometric, so the energy must converge as
+    # N_image grows, and successive increments must shrink. This is a real
+    # property of the method and it does not presuppose any particular
+    # convention for how real-image pairs are weighted.
     Random.seed!(20260927)
     n = 6
     L = (5.0, 5.0, 25.0)
     γ = (0.4, 0.4)
-    N_image = 4
     poses = [SVector(rand() * L[1], rand() * L[2], 8.0 + 9.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    E_icm = coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = N_image),
-                           poses, charges)
-
-    # direct oracle: reflect, then sum real-real fully and real-image at half weight
-    m = n * (1 + 2N_image)
-    rp = [zero(SVector{3,Float64}) for _ in 1:m]
-    rq = zeros(Float64, m)
-    ExTinyMD.icm_reflect!(rp, rq, γ, L, N_image, poses, charges)
-
-    E_direct = 0.0
-    for i in 1:n, j in 1:m
-        (i == j) && continue
-        w = j <= n ? 0.5 : 0.5          # real-real double counted, real-image halved
-        for mx in -30:30, my in -30:30
-            dx = rp[i][1] - rp[j][1] - mx * L[1]
-            dy = rp[i][2] - rp[j][2] - my * L[2]
-            dz = rp[i][3] - rp[j][3]
-            E_direct += w * rq[i] * rq[j] / sqrt(dx^2 + dy^2 + dz^2)
-        end
-    end
-    # include the real particles' own in-plane images
-    for i in 1:n
-        for mx in -30:30, my in -30:30
-            (mx == 0 && my == 0) && continue
-            E_direct += 0.5 * rq[i]^2 / sqrt((mx * L[1])^2 + (my * L[2])^2)
-        end
-    end
-    E_direct /= 4π
-
-    @test isapprox(E_icm, E_direct, rtol = 5e-3)
+    Es = [coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = m),
+                         poses, charges) for m in 1:6]
+    d = abs.(diff(Es))
+    @test all(isfinite, Es)
+    # increments shrink monotonically, and the tail is small relative to the total
+    @test all(d[i + 1] < d[i] for i in 1:(length(d) - 1))
+    @test d[end] < 1e-3 * abs(Es[end])
 end
 
 @testset "ICM+Ewald3D+ELC agrees with ICM+Ewald2D" begin
@@ -1720,6 +1748,14 @@ end
 @testset "ICM force matches -grad(energy)" begin
     # See spec §7: the ICM force convention is ported, not re-derived. If this test
     # fails, STOP and report it — do not change the formula to make it pass.
+    #
+    # Note on what is NOT tested here: an earlier draft of this plan hand-rolled a
+    # direct-sum ICM oracle that applied its own real-image weighting. That tests the
+    # plan author's guess at the convention rather than the ported code, so it was
+    # dropped. ICM correctness rests on four checks that do not beg the question:
+    # the γ = 0 reduction to plain Ewald2D, convergence of the image series in
+    # N_image, agreement between ICM+Ewald2D and ICM+Ewald3D+ELC (two different
+    # algorithms), and this finite-difference force check.
     Random.seed!(20260929)
     n = 6
     L = (6.0, 6.0, 20.0)
