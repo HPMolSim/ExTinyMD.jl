@@ -14,6 +14,7 @@ export SubLennardJones, LennardJones, ExternalField
 export Periodic3D, PeriodicQ2D, ewald_cutoffs, check_neutrality
 export EwaldShort, short_energy, short_force!
 export Ewald3DLong, long_energy, long_force!
+export Ewald2DLong, Ewald2D
 export EwaldInteraction, coulomb_energy, coulomb_force, coulomb_force!, Ewald3D
 
 export load_trajection, data2info, load_lammpstrj
@@ -49,6 +50,7 @@ include("interactions/external_field.jl")
 include("interactions/electrostatics/common.jl")
 include("interactions/electrostatics/short.jl")
 include("interactions/electrostatics/long_ewald3d.jl")
+include("interactions/electrostatics/long_ewald2d.jl")
 include("interactions/electrostatics/ewald.jl")
 
 # Tools

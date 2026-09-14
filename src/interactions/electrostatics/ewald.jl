@@ -93,3 +93,18 @@ function Ewald3D(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T),
     long  = Ewald3DLong(n_atoms, L; α = α, s = s, ϵ = ϵ, ϵ_inf = ϵ_inf)
     return EwaldInteraction(short, long, n_atoms)
 end
+
+"""
+    Ewald2D(n_atoms, L; α, s, ϵ = 1.0)
+
+Exact Ewald summation for a slab periodic in x and y and free in z. `L[3]` is the
+extent used for the real-space neighbour search, not a period.
+
+`O(N²K)` — use it as the quasi-2D accuracy reference, and for production runs on
+large systems reach for `QuasiEwald.jl` or `SoEwald2D.jl`.
+"""
+function Ewald2D(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T)) where {T}
+    short = EwaldShort(n_atoms, L; α = α, s = s, ϵ = ϵ, convention = PeriodicQ2D())
+    long  = Ewald2DLong(n_atoms, L; α = α, s = s, ϵ = ϵ)
+    return EwaldInteraction(short, long, n_atoms)
+end
