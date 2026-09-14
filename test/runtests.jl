@@ -16,4 +16,5 @@ end
     include("electrostatics/test_common.jl")
     include("electrostatics/test_short.jl")
     include("electrostatics/test_long_ewald3d.jl")
+    include("electrostatics/test_ewald.jl")
 end
