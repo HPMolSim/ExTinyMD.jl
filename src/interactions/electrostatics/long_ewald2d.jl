@@ -39,11 +39,26 @@ Base.show(io::IO, l::Ewald2DLong) =
     print(io, "Ewald2DLong(α = $(l.α), k_c = $(l.k_c), ϵ = $(l.ϵ), " *
               "$(length(l.k_set)) k-vectors)")
 
+"""
+    _exp_overflow_threshold(T) -> T
+
+Largest `x` for which `exp(x)` is finite in floating-point type `T`, i.e. just
+below `log(floatmax(T))`. Used to guard `exp(±kz)` against overflow below.
+
+A *literal* threshold (e.g. `600`) is wrong here: where `exp` overflows is a
+property of `T`, not a constant. `log(floatmax(Float64)) ≈ 709.78`, but
+`log(floatmax(Float32)) ≈ 88.72` — a hardcoded `600` never fires for `Float32`,
+so `exp` silently returns `Inf`, its paired `erfc` underflows to `0`, and
+`Inf * 0` produces `NaN`. Subtracting 1 keeps a margin so `exp` itself never
+overflows even right at the boundary.
+"""
+@inline _exp_overflow_threshold(::Type{T}) where {T} = log(floatmax(T)) - one(T)
+
 # exp(±k z) erfc(k/2α ± α z), guarded. For large positive argument the exp overflows
 # while the erfc underflows; the product tends to zero, so return zero rather than
 # letting Inf * 0 produce NaN.
 @inline function _exp_erfc(kz::T, arg::T) where {T}
-    kz > T(600) && return zero(T)
+    kz > _exp_overflow_threshold(T) && return zero(T)
     return exp(kz) * erfc(arg)
 end
 
@@ -140,9 +155,9 @@ function long_force!(F::Vector{SVector{3,T}}, long::Ewald2DLong{T}, poses,
                 # d/dz of (e^{kz} erfc(k/2α+αz) + e^{-kz} erfc(k/2α-αz)), same
                 # overflow guard as _exp_erfc: exp overflows while the Gaussian
                 # underflows, and the product tends to zero.
-                gauss_p = k * z > T(600) ? zero(T) :
+                gauss_p = k * z > _exp_overflow_threshold(T) ? zero(T) :
                           exp(k * z) * exp(-(k / (2α) + α * z)^2)
-                gauss_m = -k * z > T(600) ? zero(T) :
+                gauss_m = -k * z > _exp_overflow_threshold(T) ? zero(T) :
                           exp(-k * z) * exp(-(k / (2α) - α * z)^2)
                 sz += qq * cos(phase) * (k * ee_p - k * ee_m -
                                          2α / sqrt(T(π)) * gauss_p +

@@ -91,14 +91,26 @@ end
     poses = [SVector(1.0f0, 2.0f0, 3.0f0), SVector(5.0f0, 6.0f0, 7.0f0)]
     charges = [1.0f0, -1.0f0]
 
+    # `isfinite` is checked alongside the type, not instead of it: `NaN` is a
+    # `Float32` too, so a bare `isa Float32` passed even when the Float32
+    # overflow guard in long_ewald2d.jl's `_exp_erfc` used a hardcoded `600`
+    # threshold (valid for Float64, but far above where Float32 overflows) and
+    # the composite silently returned NaN. Do not weaken these back to a type
+    # check alone.
     ewald3d = Ewald3D(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < min(L)/2 = 4
-    @test coulomb_energy(ewald3d, poses, charges) isa Float32
+    E3d = coulomb_energy(ewald3d, poses, charges)
+    @test E3d isa Float32
+    @test isfinite(E3d)
     F3d = coulomb_force(ewald3d, poses, charges)
     @test F3d isa Vector{SVector{3,Float32}}
+    @test all(all(isfinite, f) for f in F3d)
 
     # r_c = 3.75 < min(L[1], L[2])/2 = 4, as required for ICM/Ewald2D
     icm = ICMEwald2D(2, L; α = 0.8f0, s = 3.0f0, γ = (0.3f0, 0.3f0), N_image = 2)
-    @test coulomb_energy(icm, poses, charges) isa Float32
+    E = coulomb_energy(icm, poses, charges)
+    @test E isa Float32
+    @test isfinite(E)
     Ficm = coulomb_force(icm, poses, charges)
     @test Ficm isa Vector{SVector{3,Float32}}
+    @test all(all(isfinite, f) for f in Ficm)
 end
