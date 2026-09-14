@@ -12,6 +12,7 @@ export TemperatureLogger, TrajectoryLogger, EnergyLogger
 export SubLennardJones, LennardJones, ExternalField
 
 export Periodic3D, PeriodicQ2D, ewald_cutoffs, check_neutrality
+export EwaldShort, short_energy, short_force!
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
@@ -44,6 +45,7 @@ include("interactions/external_field.jl")
 
 # electrostatics standard library
 include("interactions/electrostatics/common.jl")
+include("interactions/electrostatics/short.jl")
 
 # Tools
 include("Tools/data_loader.jl")
