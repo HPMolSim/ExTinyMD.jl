@@ -429,11 +429,22 @@ end
         @test 0 < k <= k_c + 1e-12
         @test k ≈ sqrt(kx^2 + ky^2 + kz^2)
     end
-    # ±k symmetry: the set is closed under negation
-    s = Set((kx, ky, kz) for (kx, ky, kz, _) in ks)
-    @test all(((-kx, -ky, -kz) in s) for (kx, ky, kz) in s)
+    # ±k symmetry: the set is closed under negation.
+    #
+    # Fold -0.0 to 0.0 before any set membership. `Set` compares with `isequal`,
+    # and `isequal(-0.0, 0.0)` is false even though `-0.0 == 0.0` is true, so
+    # negating a k-vector with a zero component produces a key that is absent from
+    # the set for reasons of floating-point sign, not of symmetry. Without the fold
+    # this test fails deterministically against a perfectly symmetric k-set.
+    fold(x::T) where {T} = x == 0 ? zero(T) : x
+    key(kx, ky, kz) = (fold(kx), fold(ky), fold(kz))
+
+    s = Set(key(kx, ky, kz) for (kx, ky, kz, _) in ks)
+    # the fold must not merge distinct k-vectors, or the test above it goes vacuous
+    @test length(s) == length(ks)
+    @test all((key(-kx, -ky, -kz) in s) for (kx, ky, kz, _) in ks)
     # a cubic box gives a k-set invariant under axis permutation
-    s2 = Set((ky, kz, kx) for (kx, ky, kz) in s)
+    s2 = Set(key(ky, kz, kx) for (kx, ky, kz) in s)
     @test s == s2
 end
 
