@@ -1,3 +1,9 @@
+"""
+    ExternalField(; E = Point((0.0, 0.0, 0.0)))
+
+A uniform external electric field `E`; each particle feels a force `charge * E`.
+Pair with a [`NoNeighborFinder`](@ref), since no neighbour list is needed.
+"""
 struct ExternalField{T} <: AbstractInteraction
     E::Point{3, T}
 end

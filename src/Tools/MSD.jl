@@ -1,3 +1,13 @@
+"""
+    MSD(data::Vector, boundary; s::Int64 = 1) -> msd
+
+Mean squared displacement per axis, computed from unwrapped positions built
+by accumulating minimum-image displacements between consecutive frames of
+`data` (each frame in the `[id, type, x, y, z, ...]` layout used by
+[`load_trajectory`](@ref)/[`load_lammpstrj`](@ref)), starting from frame `s`.
+Returns `msd[k]`, a vector over time of the mean squared displacement along
+axis `k ∈ {1,2,3}`.
+"""
 function MSD(data::Vector, boundary::Boundary{T}; s::Int64 = 1) where{T}
     n_atoms = length(data[1])
     displacement = [Point(zero(T), zero(T), zero(T)) for j in 1:n_atoms]

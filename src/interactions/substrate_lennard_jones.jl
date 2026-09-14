@@ -1,3 +1,10 @@
+"""
+    SubLennardJones(sub_down, sub_up; ϵ = 1.0, cutoff = 3.5, σ = 1.0)
+
+Lennard-Jones interaction between each particle and two flat substrates at
+`z = sub_down` and `z = sub_up`, acting only in z on particles within
+`cutoff` of a wall (see [`SubNeighborFinder`](@ref)).
+"""
 struct SubLennardJones{T} <: AbstractInteraction
     ϵ::T
     cutoff::T

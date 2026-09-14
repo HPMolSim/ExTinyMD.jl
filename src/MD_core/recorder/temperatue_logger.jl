@@ -1,3 +1,12 @@
+"""
+    TemperatureLogger{T, TI} <: AbstractLogger
+
+Records the instantaneous temperature every `step` steps, appending each
+value to `data` and, when `output = true`, to `temperature.txt`.
+
+    TemperatureLogger(step; output = true)
+    TemperatureLogger{T}(step; output = true)
+"""
 mutable struct TemperatureLogger{T, TI} <: AbstractLogger
     step::TI
     data::Vector{T}

@@ -1,7 +1,9 @@
 """
-load_trajectory(filename::String) will load the trajection from the file named "filename".
-Structure of data will be vector of vector of [id, type, x, y, z, vx, vy, vz].
+    load_trajectory(filename::String) -> (trajectory_list, step_list)
 
+Load a trajectory written by [`TrajectoryLogger`](@ref) from `filename`.
+`trajectory_list[k]` is a vector of `[id, type, x, y, z, vx, vy, vz]` rows for
+recorded step `step_list[k]`.
 """
 function load_trajectory(filename::String)
     f = open(filename)
@@ -31,6 +33,13 @@ function load_trajectory(filename::String)
     return trajectory_list, step_list
 end
 
+"""
+    data2info(data::Vector, boundary, masses, charges) -> (atoms, info)
+
+Build `atoms` and a [`SimulationInfo`](@ref) from one frame of `data` (as
+returned by [`load_trajectory`](@ref) or [`load_lammpstrj`](@ref)), looking up
+each particle's mass and charge in `masses`/`charges` by its type.
+"""
 function data2info(data::Vector, boundary::Boundary{T}, masses::Vector{T}, charges::Vector{T}) where{T}
     L = boundary.length
 	n_atoms = length(data)
@@ -49,6 +58,14 @@ function data2info(data::Vector, boundary::Boundary{T}, masses::Vector{T}, charg
 	return atoms, info
 end
 
+"""
+    load_lammpstrj(filename::String) -> (trajectory, box, timestep, num_atoms)
+
+Parse a LAMMPS dump file (`ITEM: TIMESTEP` / `ITEM: NUMBER OF ATOMS` /
+`ITEM: BOX BOUNDS pp pp ff` / `ITEM: ATOMS id type x y z` blocks). Returns each
+frame's `(id, type, x, y, z)` tuples in `trajectory`, the box bounds `box =
+(xlo, xhi, ylo, yhi, zlo, zhi)`, the recorded `timestep`s, and `num_atoms`.
+"""
 function load_lammpstrj(filename::String)
     file = open(filename, "r")
 

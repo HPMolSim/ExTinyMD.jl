@@ -1,3 +1,10 @@
+"""
+    BerendsenThermoStat(temperature, ν)
+
+Berendsen weak-coupling thermostat at the given `temperature`, with coupling
+time `ν`: every step rescales all velocities by a common factor that relaxes
+the instantaneous temperature toward `temperature` with time constant `ν`.
+"""
 struct BerendsenThermoStat{T} <: AbstractThermoStat
     temperature::T
     ν::T

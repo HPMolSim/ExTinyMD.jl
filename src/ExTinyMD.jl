@@ -19,7 +19,7 @@ export EwaldInteraction, coulomb_energy, coulomb_force, coulomb_force!, Ewald3D
 export ICM, ICMShort, ICMEwald2D, ICMEwald3D
 export gather_charges!, gather_positions!
 
-export load_trajection, data2info, load_lammpstrj
+export load_trajectory, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
 export MSD
 

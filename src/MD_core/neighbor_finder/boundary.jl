@@ -1,3 +1,10 @@
+"""
+    Boundary(L, period_set::NTuple{3,Char})
+
+Build a [`Boundary`](@ref) from edge lengths `L` and a per-axis periodicity
+tag: each entry of `period_set` is `'p'` (periodic) or `'f'` (free). Only
+`('p','p','p')`, `('p','p','f')` and `('p','f','f')` are recognised.
+"""
 function Boundary(L::NTuple{3, T}, period_set::NTuple{3, Char}) where T
     if period_set == ('p', 'p', 'p')
         return Boundary(L, (1, 1, 1))
@@ -9,14 +16,31 @@ function Boundary(L::NTuple{3, T}, period_set::NTuple{3, Char}) where T
     error("Illegale Input!")
 end
 
+"""
+    Q2dBoundary(Lx, Ly, Lz)
+
+A [`Boundary`](@ref) periodic in x and y, free in z — a quasi-2D slab of
+in-plane size `Lx × Ly` and z-extent `Lz`.
+"""
 function Q2dBoundary(Lx::T, Ly::T, Lz::T) where T
     return Boundary((Lx, Ly, Lz), (1, 1, 0))
 end
 
+"""
+    CubicBoundary(L)
+
+A [`Boundary`](@ref) that is a cube of side `L`, periodic in all three axes.
+"""
 function CubicBoundary(L::T) where T
     return Boundary((L, L, L), (1, 1, 1))
 end
 
+"""
+    BoundaryCheck!(simulation_info, boundary)
+
+Wrap every particle position in `simulation_info` back into the primary box
+along each periodic axis of `boundary`, leaving free axes untouched.
+"""
 function BoundaryCheck!(simulation_info::SimulationInfo, boundary::Boundary{T}) where T <: Number
     Lx, Ly, Lz = boundary.length
     px, py, pz = boundary.period
@@ -67,3 +91,21 @@ end
     new_coord_1, new_coord_2, r_sq = position_checkQ2D(Point(coord_1), Point(coord_2), boundary, cutoff)
     return (new_coord_1.coo, new_coord_2.coo, r_sq)
 end
+
+"""
+    position_check3D(coord_1, coord_2, boundary, cutoff) -> (image_1, image_2, dist_sq)
+
+Search the periodic images of `coord_1` (in all three axes per `boundary`) for
+one within `cutoff` of `coord_2`, returning that image pair and their squared
+distance, or a zeroed triple if none is found. Accepts either [`Point`](@ref)
+or `NTuple{3}` coordinates.
+"""
+position_check3D
+
+"""
+    position_checkQ2D(coord_1, coord_2, boundary, cutoff) -> (image_1, image_2, dist_sq)
+
+Like [`position_check3D`](@ref), but only x and y are searched for periodic
+images; z is treated as free.
+"""
+position_checkQ2D

@@ -2,6 +2,7 @@
 
 [![Build Status](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/HPMolSim/ExTinyMD.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/HPMolSim/ExTinyMD.jl)
+[![Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://HPMolSim.github.io/ExTinyMD.jl/dev)
 
 
 `ExTinyMD.jl` for Extremely Tiny Molecular Dynamic is a simple package written in `Julia`, which provide a simple software for MD simulations.
@@ -68,6 +69,24 @@ begin
     savefig("rdf_LJ_fluid.png")
 end
 ```
+
+## Electrostatics
+
+ExTinyMD also includes a small electrostatics standard library: Ewald
+summation and the image-charge method for dielectrically confined slabs,
+usable either standalone (a plan object plus plain arrays) or as an ordinary
+`MDSys` interaction. Four methods are available:
+
+- `Ewald3D` — triply periodic Ewald summation.
+- `Ewald2D` — exact Ewald summation for a slab periodic in x, y and free in z.
+- `ICMEwald2D` — `Ewald2D` plus the image-charge method, for a slab confined
+  between two dielectric walls.
+- `ICMEwald3D` — the image-charge method combined with `Ewald3D` and an
+  electrostatic layer correction, for the same confined slab at lower cost.
+
+See the [Electrostatics](https://HPMolSim.github.io/ExTinyMD.jl/dev/electrostatics/)
+page of the documentation for a full guide, including how to choose `α`/`s`
+and the image-charge parameters.
 
 ## How to Contribute
 

@@ -1,7 +1,21 @@
 # Boundary conventions. These select which axes wrap under the minimum-image
 # convention, and nothing else.
 abstract type AbstractBoundaryConvention end
+
+"""
+    Periodic3D()
+
+Boundary convention for a triply periodic box: the minimum-image displacement
+wraps all three axes. Used by [`Ewald3D`](@ref).
+"""
 struct Periodic3D  <: AbstractBoundaryConvention end
+
+"""
+    PeriodicQ2D()
+
+Boundary convention for a quasi-2D slab: the minimum-image displacement wraps
+x and y only, z is unwrapped. Used by [`Ewald2D`](@ref) and the ICM methods.
+"""
 struct PeriodicQ2D <: AbstractBoundaryConvention end
 
 """

@@ -5,3 +5,5 @@
 .vscode
 *.txt
 *.png
+docs/build/
+docs/Manifest.toml

@@ -1,6 +1,14 @@
 # nose-hoover chain with M = 1. Follow the algorithm 30/31/32 from Frenkel & Smit's book:
 # Understanding Molecular simulaton From Algorithms to Applications.
 
+"""
+    NHVerletProcess(; dt, Q = 1.0, temperature)
+
+Nose-Hoover chain (length 1) Verlet integrator at target `temperature`, with
+time step `dt` and thermostat mass `Q`. Implements the Frenkel & Smit
+(*Understanding Molecular Simulation*) algorithm; `vξ`, `ξ` and `Ek` are the
+thermostat's internal state, initialised to zero (`Ek` on the first step).
+"""
 mutable struct NHVerletProcess{T <: Number} <: AbstractSimulator
     dt::T
     Q::T

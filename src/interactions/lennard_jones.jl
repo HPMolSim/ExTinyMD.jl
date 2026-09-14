@@ -1,3 +1,9 @@
+"""
+    LennardJones(; ϵ = 1.0, cutoff = 3.5, σ = 1.0)
+
+Pairwise Lennard-Jones interaction, `E(r) = 4ϵ[(σ/r)^12 - (σ/r)^6]` for
+`r < cutoff`, evaluated over the pairs in the associated neighbour finder.
+"""
 struct LennardJones{T} <: AbstractInteraction
     ϵ::T
     cutoff::T
@@ -29,6 +35,14 @@ function update_acceleration!(interaction::LennardJones{T}, neighborfinder::T_NI
     return nothing
 end
 
+"""
+    energy(interaction, neighborfinder, sys, info) -> T
+
+The energy contributed by `interaction`. This is the interface every
+energy-reporting `AbstractInteraction` implements (used by
+[`EnergyLogger`](@ref)); not every interaction defines a method — one that
+only ever appears inside a logger-free `MDSys` need not.
+"""
 function energy(interaction::LennardJones{T}, neighborfinder::T_NIEGHBER, sys::MDSys{T}, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBER<:AbstractNeighborFinder}
 
     boundary = sys.boundary

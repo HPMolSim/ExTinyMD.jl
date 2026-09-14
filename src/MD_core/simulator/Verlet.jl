@@ -1,3 +1,9 @@
+"""
+    VerletProcess(; dt, thermostat = NoThermoStat())
+
+Velocity-Verlet integrator with time step `dt` and an optional `thermostat`
+applied once per step after the position/velocity update.
+"""
 struct VerletProcess{T_DT, T_THERMO} <: AbstractSimulator
     dt::T_DT
     thermostat::T_THERMO
