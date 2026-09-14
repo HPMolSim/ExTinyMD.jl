@@ -1770,23 +1770,45 @@ end
 
 @testset "ICM image series converges in N_image" begin
     # For |γ| < 1 the image series is geometric, so the energy must converge as
-    # N_image grows, and successive increments must shrink. This is a real
-    # property of the method and it does not presuppose any particular
-    # convention for how real-image pairs are weighted.
+    # N_image grows. The GEOMETRY decides whether that is observable: with a thick
+    # box and charges far from the walls the series is converged to machine
+    # precision at N_image = 1, and the increments are then pure floating-point
+    # noise with no ordering to assert. Controller-measured for a thick box
+    # (L_z = 25, charges in z ∈ [8,17], γ = 0.4) the increments were
+    # [2.2e-16, 0, 0, 3.3e-16, 2.2e-16] — an earlier draft of this test asserted
+    # strict monotonic decrease on exactly that and failed on noise.
+    #
+    # So use a THIN slab with charges close to both walls and a strong dielectric
+    # contrast, where the images genuinely contribute. Controller-measured
+    # increments for the configuration below:
+    #   [2.79e-5, 2.70e-7, 9.75e-10, 9.35e-12, 3.43e-14]
+    # a clean geometric decay spanning nine orders of magnitude.
     Random.seed!(20260927)
     n = 6
-    L = (5.0, 5.0, 25.0)
-    γ = (0.4, 0.4)
-    poses = [SVector(rand() * L[1], rand() * L[2], 8.0 + 9.0 * rand()) for _ in 1:n]
+    L = (5.0, 5.0, 4.0)
+    γ = (0.9, 0.9)
+    poses = [SVector(rand() * L[1], rand() * L[2], 0.8 + 2.4 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
     Es = [coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = m),
                          poses, charges) for m in 1:6]
-    d = abs.(diff(Es))
     @test all(isfinite, Es)
-    # increments shrink monotonically, and the tail is small relative to the total
-    @test all(d[i + 1] < d[i] for i in 1:(length(d) - 1))
-    @test d[end] < 1e-3 * abs(Es[end])
+
+    d = abs.(diff(Es))
+
+    # the test must not be vacuous: the first image shell has to actually matter
+    @test d[1] / abs(Es[end]) > 1e-5
+
+    # increments shrink by at least 3x per shell, while they are above the noise
+    # floor. Comparing noise against noise is what broke the earlier draft.
+    noise = 1e-13 * abs(Es[end])
+    for i in 1:(length(d) - 1)
+        d[i] > noise || continue
+        @test d[i + 1] < d[i] / 3
+    end
+
+    # and the series has converged by the last shell
+    @test d[end] < 1e-9 * abs(Es[end])
 end
 
 @testset "ICM+Ewald3D+ELC agrees with ICM+Ewald2D" begin
@@ -1844,6 +1866,42 @@ end
     inter = ICMEwald2D(n, L; α = 1.3, s = 3.5, γ = γ, N_image = 3)   # r_c = 2.69 < 3
     poses = [SVector(rand() * L[1], rand() * L[2], 6.0 + 8.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    F = coulomb_force(inter, poses, charges)
+    f = p -> coulomb_energy(inter, p, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
+                       rtol = 1e-5, atol = 1e-8)
+    end
+end
+
+@testset "ICM force matches -grad(energy) with real-image pairs in range" begin
+    # The testset above uses a thick slab in which NO real particle sits within
+    # r_c of a wall, so its reflected configuration produces zero real-image pairs
+    # inside the cutoff (controller-verified: 3 real-real, 0 real-image). That
+    # leaves the entire real-image branch of icm_short_energy / icm_short_force!
+    # — the 1/2 weighting and the accumulate-on-the-real-index-only rule, which is
+    # the subtlest logic in this task — completely unexercised.
+    #
+    # This configuration is deterministic rather than random, with two charges
+    # placed inside r_c/2 of a wall so their own images are guaranteed inside the
+    # cutoff on every run. Controller-measured: 2 real-real pairs, 4 real-image
+    # pairs, worst finite-difference force error 6.2e-8.
+    L = (6.0, 6.0, 5.0)
+    γ = (0.8, 0.8)
+    poses = [SVector(1.0, 1.0, 0.5), SVector(3.0, 1.5, 4.6), SVector(1.5, 3.5, 2.5),
+             SVector(4.0, 4.0, 0.7), SVector(2.0, 4.5, 4.3), SVector(4.5, 2.0, 2.0)]
+    charges = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+    n = length(charges)
+
+    inter = ICMEwald2D(n, L; α = 1.3, s = 3.5, γ = γ, N_image = 3)   # r_c = 2.692 < 3
+
+    # Guard the intent: a charge at height z has its own image at -z, so the pair
+    # separation is 2z. Assert that at least one real charge is close enough to a
+    # wall for that pair to fall inside the cutoff, otherwise this test silently
+    # degrades into a duplicate of the one above.
+    r_c = inter.short.r_c
+    @test 2 * minimum(p[3] for p in poses) < r_c
 
     F = coulomb_force(inter, poses, charges)
     f = p -> coulomb_energy(inter, p, charges)
