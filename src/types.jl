@@ -83,20 +83,20 @@ end
 
 
 struct AllNeighborFinder{T} <: AbstractNeighborFinder
-    neighborlist::Vector{Tuple{Int64, Int64, T}}
+    neighbor_list::Vector{Tuple{Int64, Int64, T}}
 end
 AllNeighborFinder(n_atoms::TI, T::Type = Float64) where {TI <: Integer} = AllNeighborFinder{T}([(i, j, zero(T)) for i in 1:n_atoms - 1 for j in i+1:n_atoms])
 
-Base.show(io::IO, neighborfinder::AllNeighborFinder) = print(io, "AllNeighborFinder with $(length(neighborfinder.neighborlist)) pairs")
+Base.show(io::IO, neighborfinder::AllNeighborFinder) = print(io, "AllNeighborFinder with $(length(neighborfinder.neighbor_list)) pairs")
 
 function update_finder!(neighborfinder::T_NIEGHBOR, info::SimulationInfo{T}) where {T<:Number, T_NIEGHBOR <: AllNeighborFinder}
     return nothing
 end
 
 struct NoNeighborFinder{T} <: AbstractNeighborFinder
-    neighborlist::Vector{Tuple{Int64, Int64, T}}
+    neighbor_list::Vector{Tuple{Int64, Int64, T}}
 end
-NoNeighborFinder(T::Type = Float64) = NoNeighborFinder{T}([(0, 0, zero(T))])
+NoNeighborFinder(T::Type = Float64) = NoNeighborFinder{T}(Tuple{Int64, Int64, T}[])
 
 Base.show(io::IO, neighborfinder::NoNeighborFinder) = print(io, "NoNeighborFinder")
 
