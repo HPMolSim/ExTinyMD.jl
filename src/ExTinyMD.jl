@@ -6,7 +6,7 @@ export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3
 export energy
 export VerletProcess, simulate!
 export AndersenThermoStat, BerendsenThermoStat, NHVerletProcess
-export SubNeighborFinder, CellList3D, CellList2D, CellListDir3D, CellListDirQ2D, CellListQ2D
+export SubNeighborFinder, CellList3D, CellListDir3D, CellListDirQ2D, CellListQ2D
 export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
 export SubLennardJones, LennardJones, ExternalField
