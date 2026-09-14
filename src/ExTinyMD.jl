@@ -17,6 +17,7 @@ export Ewald3DLong, long_energy, long_force!
 export Ewald2DLong, Ewald2D
 export EwaldInteraction, coulomb_energy, coulomb_force, coulomb_force!, Ewald3D
 export ICM, ICMShort, ICMEwald2D, ICMEwald3D
+export gather_charges!, gather_positions!
 
 export load_trajection, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
@@ -54,6 +55,7 @@ include("interactions/electrostatics/long_ewald3d.jl")
 include("interactions/electrostatics/long_ewald2d.jl")
 include("interactions/electrostatics/icm.jl")
 include("interactions/electrostatics/ewald.jl")
+include("interactions/electrostatics/adapter.jl")
 
 # Tools
 include("Tools/data_loader.jl")
