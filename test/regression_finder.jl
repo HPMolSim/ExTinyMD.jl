@@ -26,10 +26,10 @@
 
     # NoNeighborFinder yields exactly zero pair energy for a cutoff-respecting interaction
     no_finder = NoNeighborFinder(Float64)
-    @test isfinite(energy(interaction, no_finder, MDSys(
+    @test energy(interaction, no_finder, MDSys(
         n_atoms = n_atoms, atoms = atoms, boundary = boundary,
         interactions = [(interaction, no_finder)],
         loggers = [TemperatureLogger(100; output = false)],
         simulator = VerletProcess(dt = 0.001),
-    ), info))
+    ), info) == 0.0
 end

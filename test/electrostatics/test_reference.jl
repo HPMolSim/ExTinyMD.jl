@@ -25,6 +25,19 @@ end
     @test isapprox(M, 1.7475645946, atol = 1e-5)
 end
 
+@testset "oracle: Richardson extrapolation algebra" begin
+    # A sequence that is exactly E_inf + c/n must be inverted exactly, from any
+    # pair of shell counts. Accuracy on a real lattice sum is validated in Task 7,
+    # where a converged Ewald2D reference exists; asserting it here would be
+    # circular.
+    E_inf, c = -0.25, 1.5
+    fake(n) = E_inf + c / n
+    ex(n1, n2) = (n2 * fake(n2) - n1 * fake(n1)) / (n2 - n1)
+    @test isapprox(ex(10, 20), E_inf; rtol = 1e-12)
+    @test isapprox(ex(30, 60), E_inf; rtol = 1e-12)
+    @test isapprox(ex(40, 80), E_inf; rtol = 1e-12)
+end
+
 @testset "oracle: Q2D reduces to 3D for a tall box" begin
     # With one layer of charges and a box far taller than its width, the z-images
     # contribute negligibly, so the 3D and Q2D sums must agree.

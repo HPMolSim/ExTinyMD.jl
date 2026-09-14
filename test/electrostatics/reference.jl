@@ -40,6 +40,25 @@ function naive_energy_Q2D(poses, charges, L::NTuple{3,T}, n_shell::Int; ϵ::T = 
     return E / (2 * 4π * ϵ)
 end
 
+"""
+Richardson-extrapolated quasi-2D lattice sum.
+
+The truncated 2D sum converges as `1/n_shell` — measured relative error 13.5%, 6.9%,
+4.6%, 3.5% at `n_shell` = 10, 20, 30, 40 — which is far too slow to compare against an
+Ewald result directly. Eliminating the `1/n` term with two shell counts reaches about
+3e-4 at `(30, 60)`:
+
+    E_inf ≈ (n2*E(n2) − n1*E(n1)) / (n2 − n1)
+
+Use this, not the raw sum, whenever comparing against a converged method.
+"""
+function naive_energy_Q2D_extrap(poses, charges, L::NTuple{3,T}, n1::Int, n2::Int;
+                                 ϵ::T = one(T)) where T
+    E1 = naive_energy_Q2D(poses, charges, L, n1; ϵ = ϵ)
+    E2 = naive_energy_Q2D(poses, charges, L, n2; ϵ = ϵ)
+    return (n2 * E2 - n1 * E1) / (n2 - n1)
+end
+
 "Central finite difference of `f(poses)` w.r.t. component `d` of particle `i`."
 function fd_gradient(f, poses::Vector{SVector{3,T}}, i::Int, d::Int;
                      h::T = cbrt(eps(T))) where T
