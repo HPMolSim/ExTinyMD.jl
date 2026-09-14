@@ -133,7 +133,11 @@ end
     @test isfinite(E1)
     # microcanonical Verlet at this dt should not let the electrostatic energy run
     # away; a sign error or a mass bug shows up as an unbounded value
-    @test abs(E1 - E0) < 0.5 * max(abs(E0), 1.0)
+    # Observed drift for this configuration is ~0.00128 (controller-measured), so
+    # 0.05 leaves roughly 38x headroom for seed variance and step-count sensitivity
+    # while still failing against a materially wrong force. The original 0.5 was set
+    # without measurement and constrained almost nothing.
+    @test abs(E1 - E0) < 0.05 * max(abs(E0), 1.0)
 end
 
 @testset "adapter works for ICM with NoNeighborFinder" begin
