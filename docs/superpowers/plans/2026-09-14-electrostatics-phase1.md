@@ -908,7 +908,7 @@ expressions reduce to the ordinary Ewald ones. Do not omit it: Task 8 depends on
 summing targets over the image charges too would add unphysical image-image
 self-interaction. Controller-verified: real-only targets make ICM+Ewald2D and
 ICM+Ewald3D+ELC agree to 4.7e-8, while all-reflected targets leave them 5.8% apart.
-  - fields `α`, `k_c`, `r_c`, `ϵ`, `ϵ_inf`, `L`, `n_atoms`, `k_set`
+  - fields, in this order: `α`, `r_c`, `k_c`, `ϵ`, `ϵ_inf`, `L`, `n_atoms`, `k_set`
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1262,12 +1262,20 @@ struct EwaldInteraction{T, S, L} <: AbstractInteraction
     long::L
     n_atoms::Int
     force_buffer::Vector{SVector{3,T}}
+    # Gather buffers for the MD adapter (Task 9). Declared here, with the struct,
+    # rather than bolted on later: the adapter is called every timestep and must
+    # not allocate, and adding fields in a later task would force every consumer
+    # of this struct to be re-tested for no benefit.
+    pos_scratch::Vector{SVector{3,T}}
+    charge_scratch::Vector{T}
 end
 
 function EwaldInteraction(short::S, long::L, n_atoms::Int) where {S, L}
     T = typeof(short.α)
     return EwaldInteraction{T, S, L}(short, long, n_atoms,
-                                     [zero(SVector{3,T}) for _ in 1:n_atoms])
+                                     [zero(SVector{3,T}) for _ in 1:n_atoms],
+                                     [zero(SVector{3,T}) for _ in 1:n_atoms],
+                                     zeros(T, n_atoms))
 end
 
 Base.show(io::IO, i::EwaldInteraction) =
@@ -2012,9 +2020,15 @@ struct ICM{T, L, S} <: AbstractInteraction
     L::NTuple{3,T}
     elc::Bool
     N_pad::Int
+    # reflected configuration: length n_ref = n_atoms * (1 + 2*N_image)
     ref_poses::Vector{SVector{3,T}}
     ref_charges::Vector{T}
     ref_force::Vector{SVector{3,T}}
+    # real particles only: length n_atoms. force_buffer is what the adapter hands
+    # to coulomb_force!; pos_scratch/charge_scratch are its gather buffers.
+    force_buffer::Vector{SVector{3,T}}
+    pos_scratch::Vector{SVector{3,T}}
+    charge_scratch::Vector{T}
 end
 
 function ICM(long::L, short::S, γ::Tuple{T,T}, N_image::Int, n_atoms::Int,
@@ -2022,7 +2036,10 @@ function ICM(long::L, short::S, γ::Tuple{T,T}, N_image::Int, n_atoms::Int,
     n_ref = n_atoms * (1 + 2 * N_image)
     return ICM{T, L, S}(long, short, γ, N_image, n_atoms, Lbox, elc, N_pad,
                         [zero(SVector{3,T}) for _ in 1:n_ref], zeros(T, n_ref),
-                        [zero(SVector{3,T}) for _ in 1:n_ref])
+                        [zero(SVector{3,T}) for _ in 1:n_ref],
+                        [zero(SVector{3,T}) for _ in 1:n_atoms],
+                        [zero(SVector{3,T}) for _ in 1:n_atoms],
+                        zeros(T, n_atoms))
 end
 
 Base.show(io::IO, i::ICM) =
@@ -2413,51 +2430,13 @@ _finder_list(f::NoNeighborFinder) = nothing
 _finder_list(f) = f.neighbor_list
 ```
 
-This requires `pos_scratch` and `charge_scratch` fields. Add them to `EwaldInteraction` in `ewald.jl`:
+Both `EwaldInteraction` (Task 6) and `ICM` (Task 8) already declare `force_buffer`,
+`pos_scratch` and `charge_scratch`, each of length `n_atoms`. **You do not need to modify
+either struct** — the fields were declared with the structs precisely so this task adds
+only `adapter.jl` and does not force Tasks 6-8 to be re-tested.
 
-```julia
-struct EwaldInteraction{T, S, L} <: AbstractInteraction
-    short::S
-    long::L
-    n_atoms::Int
-    force_buffer::Vector{SVector{3,T}}
-    pos_scratch::Vector{SVector{3,T}}
-    charge_scratch::Vector{T}
-end
-
-function EwaldInteraction(short::S, long::L, n_atoms::Int) where {S, L}
-    T = typeof(short.α)
-    return EwaldInteraction{T, S, L}(short, long, n_atoms,
-                                     [zero(SVector{3,T}) for _ in 1:n_atoms],
-                                     [zero(SVector{3,T}) for _ in 1:n_atoms],
-                                     zeros(T, n_atoms))
-end
-```
-
-and to `ICM` in `icm.jl`, with `force_buffer`, `pos_scratch` and `charge_scratch` of length
-`n_atoms` alongside the existing `ref_*` buffers of length `n_ref`:
-
-```julia
-struct ICM{T, L, S} <: AbstractInteraction
-    long::L
-    short::S
-    γ::Tuple{T,T}
-    N_image::Int
-    n_atoms::Int
-    L::NTuple{3,T}
-    elc::Bool
-    N_pad::Int
-    ref_poses::Vector{SVector{3,T}}
-    ref_charges::Vector{T}
-    ref_force::Vector{SVector{3,T}}
-    force_buffer::Vector{SVector{3,T}}
-    pos_scratch::Vector{SVector{3,T}}
-    charge_scratch::Vector{T}
-end
-```
-
-Update both constructors to allocate the new fields, and re-run Tasks 6–8's tests to confirm
-the struct change broke nothing.
+If a field is missing, stop and report it rather than adding it here: that would mean an
+earlier task diverged from its brief, and I want to know.
 
 Add to `src/ExTinyMD.jl` (last of the electrostatics includes):
 
