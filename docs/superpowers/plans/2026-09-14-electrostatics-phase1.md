@@ -19,6 +19,20 @@
 - Interchange type across the core API is `SVector{3,T}`. Core kernels must access positions only via `p[1]`, `p[2]`, `p[3]` so `Point{3,T}` and `NTuple{3,T}` also work.
 - Never index a thread-local accumulator by `Threads.threadid()`. Partition work across tasks and give each task its own accumulator.
 - Parameter convention, shared with every sibling package: `r_c = s/α`, `k_c = 2αs`.
+- **`r_c` must be strictly less than half the smallest *periodic* box side.** CellListMap
+  0.10 enforces this and raises
+  `ArgumentError: UNIT CELL CHECK FAILED ... must be greater than 2*cutoff` otherwise —
+  verified by probe, and the bound is strict, so `r_c == L/2` also fails. Since
+  `r_c = s/α`, every choice of `α` and `s` is constrained by the box: `s/α < min(L)/2`.
+  For `Periodic3D` all three sides count; for `PeriodicQ2D` only `L[1]` and `L[2]` do.
+  Every parameter set in this plan has been checked against this. If you change one, re-check it.
+- **CellListMap 0.10 in-place API uses keywords**: `InPlaceNeighborList(xpositions = ...)`
+  and `update!(cl, xpositions = ...)`. The 0.9 spellings `InPlaceNeighborList(x = ...)` and
+  positional `update!(cl, x)` raise `MethodError`. `neighborlist` likewise takes
+  `xpositions =`. Follow `src/MD_core/neighbor_finder/cell_list.jl`, which is already on
+  0.10; do **not** copy the idiom from `ParticleMeshEwald.jl`, which pins 0.9.
+- Tests that build a `TemperatureLogger` must pass `output = false`. The default
+  `output = true` opens and truncates `temperature.txt` in the working directory.
 - Accumulate structure factors in `Complex{T}`, never a hardcoded `ComplexF64`.
 - Prefactors are asymmetric and this is intentional: short-range carries `1/(4πϵ)`, Ewald2D's long-range carries `1/ϵ`. Ewald3D's long-range is written as `1/(2Vϵ)`, already folded. Do not "fix" this.
 - Work on branch `electrostatics-stdlib`. Commit after every task.
@@ -85,7 +99,7 @@ Create `test/regression_finder.jl`:
     E = energy(interaction, all_finder, MDSys(
         n_atoms = n_atoms, atoms = atoms, boundary = boundary,
         interactions = [(interaction, all_finder)],
-        loggers = [TemperatureLogger(100)],
+        loggers = [TemperatureLogger(100; output = false)],
         simulator = VerletProcess(dt = 0.001),
     ), info)
     @test isfinite(E)
@@ -95,7 +109,7 @@ Create `test/regression_finder.jl`:
     @test isfinite(energy(interaction, no_finder, MDSys(
         n_atoms = n_atoms, atoms = atoms, boundary = boundary,
         interactions = [(interaction, no_finder)],
-        loggers = [TemperatureLogger(100)],
+        loggers = [TemperatureLogger(100; output = false)],
         simulator = VerletProcess(dt = 0.001),
     ), info))
 end
@@ -250,8 +264,6 @@ end
 Create `test/electrostatics/test_reference.jl`:
 
 ```julia
-include("reference.jl")
-
 @testset "oracle: finite-difference helper" begin
     # gradient of a known scalar function of one particle's position
     poses = [SVector(0.3, 0.7, 1.1), SVector(2.0, 0.5, 0.25)]
@@ -292,9 +304,14 @@ end
 
 - [ ] **Step 2: Run to verify**
 
-Add to `test/runtests.jl`:
+Add to `test/runtests.jl`. Note that `reference.jl` is included **once here**, ahead of
+the testsets, not from inside `test_reference.jl` — Tasks 5, 7 and 8 all consume
+`nacl_lattice`, `fd_gradient` and `naive_energy_Q2D`, so the oracle must be unambiguously
+in scope for every electrostatics test file:
 
 ```julia
+include("electrostatics/reference.jl")
+
 @testset "electrostatics" begin
     include("electrostatics/test_reference.jl")
 end
@@ -302,7 +319,24 @@ end
 
 Run `julia --project=. -e 'using Pkg; Pkg.test()'`.
 
-Expected: PASS. If the Madelung test fails, the oracle is wrong and **must** be fixed before proceeding — do not loosen the tolerance to make it pass. Check the sublattice charge assignment and the `i == j` home-cell exclusion first.
+Expected: PASS.
+
+If the Madelung test fails, the oracle is wrong and **must** be fixed before proceeding.
+Check the sublattice charge assignment and the `i == j` home-cell exclusion first. Do not
+loosen the tolerance on your own judgement: instead print the recovered constant at several
+shell counts and put the sequence in your report, so the controller can adjudicate against
+real numbers.
+
+```julia
+for n_shell in (8, 12, 16, 20)
+    E = naive_energy_3D(poses, charges, L, n_shell)
+    println("n_shell=", n_shell, "  M=", -E * 4π * (a/2) / length(charges))
+end
+```
+
+Cubic-shell truncation of NaCl converges slowly and non-monotonically. The 8-ion cube is
+neutral with zero dipole and zero quadrupole, so it should reach the literature value to
+about 1e-2; report the sequence either way.
 
 - [ ] **Step 3: Commit**
 
@@ -592,7 +626,7 @@ Create `test/electrostatics/test_short.jl`:
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    α, s = 0.35, 4.0
+    α, s = 0.75, 4.0      # r_c = s/α = 5.33 < L/2 = 6
     short = EwaldShort(n, L; α = α, s = s)
 
     # brute force: same formula, every minimum-image pair inside r_c, plus self term
@@ -615,10 +649,10 @@ end
 @testset "EwaldShort force matches -grad(energy)" begin
     Random.seed!(20260915)
     n = 12
-    L = (10.0, 10.0, 10.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    short = EwaldShort(n, L; α = 0.4, s = 3.5)
+    short = EwaldShort(n, L; α = 0.75, s = 3.5)   # r_c = 4.67 < 6
 
     F = [zero(SVector{3,Float64}) for _ in 1:n]
     short_force!(F, short, poses, charges)
@@ -636,20 +670,20 @@ end
     L = (10.0, 10.0, 10.0)
     poses = [SVector(1.0, 1.0, 0.5), SVector(1.0, 1.0, 9.0)]
     charges = [1.0, -1.0]
-    s3 = EwaldShort(2, L; α = 0.3, s = 4.0, convention = Periodic3D())
-    sq = EwaldShort(2, L; α = 0.3, s = 4.0, convention = PeriodicQ2D())
+    s3 = EwaldShort(2, L; α = 0.75, s = 3.0, convention = Periodic3D())
+    sq = EwaldShort(2, L; α = 0.75, s = 3.0, convention = PeriodicQ2D())
     @test !isapprox(short_energy(s3, poses, charges), short_energy(sq, poses, charges))
 end
 
 @testset "EwaldShort accepts Point and NTuple positions" begin
     L = (10.0, 10.0, 10.0)
-    sv = [SVector(1.0, 2.0, 3.0), SVector(4.0, 5.0, 6.0)]
+    sv = [SVector(1.0, 2.0, 3.0), SVector(2.0, 3.0, 4.0)]
     charges = [1.0, -1.0]
-    short = EwaldShort(2, L; α = 0.3, s = 4.0)
+    short = EwaldShort(2, L; α = 0.75, s = 3.0)   # r_c = 4.0 < 5; pair at r = 1.73 counts
     E = short_energy(short, sv, charges)
-    @test isapprox(short_energy(short, [Point(1.0, 2.0, 3.0), Point(4.0, 5.0, 6.0)],
+    @test isapprox(short_energy(short, [Point(1.0, 2.0, 3.0), Point(2.0, 3.0, 4.0)],
                                 charges), E)
-    @test isapprox(short_energy(short, [(1.0, 2.0, 3.0), (4.0, 5.0, 6.0)], charges), E)
+    @test isapprox(short_energy(short, [(1.0, 2.0, 3.0), (2.0, 3.0, 4.0)], charges), E)
 end
 ```
 
@@ -694,7 +728,7 @@ function EwaldShort(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T),
                     convention::C = Periodic3D()) where {T, C <: AbstractBoundaryConvention}
     r_c, k_c = ewald_cutoffs(s, α)
     pos_buffer = [zero(SVector{3,T}) for _ in 1:n_atoms]
-    cell_list = InPlaceNeighborList(x = pos_buffer, cutoff = r_c,
+    cell_list = InPlaceNeighborList(xpositions = pos_buffer, cutoff = r_c,
                                     unitcell = _cell_unitcell(L, r_c, convention),
                                     parallel = true)
     return EwaldShort{T, C, typeof(cell_list)}(α, r_c, k_c, ϵ, L, n_atoms, convention,
@@ -715,7 +749,7 @@ function _refresh_neighbors!(short::EwaldShort{T}, poses) where {T}
         p = poses[i]
         short.pos_buffer[i] = SVector{3,T}(T(p[1]), T(p[2]), T(p[3]))
     end
-    update!(short.cell_list, short.pos_buffer)
+    update!(short.cell_list, xpositions = short.pos_buffer)
     return neighborlist!(short.cell_list)
 end
 
@@ -828,7 +862,7 @@ Create `test/electrostatics/test_long_ewald3d.jl`:
     poses, charges, L = nacl_lattice(2, a)   # 64 ions
     n = length(charges)
 
-    α, s = 0.9, 5.0
+    α, s = 2.1, 4.0      # L = (4,4,4) so r_c must be < 2; s/α = 1.90
     short = EwaldShort(n, L; α = α, s = s)
     long  = Ewald3DLong(n, L; α = α, s = s)
     E_ewald = short_energy(short, poses, charges) + long_energy(long, poses, charges)
@@ -842,7 +876,7 @@ end
     # sharpest internal check on the relative normalisation of the two parts.
     Random.seed!(20260916)
     n = 20
-    L = (8.0, 8.0, 8.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
@@ -852,18 +886,20 @@ end
         return short_energy(short, poses, charges) + long_energy(long, poses, charges)
     end
 
-    E_ref = total(0.8, 6.0)
-    @test isapprox(total(1.0, 6.0), E_ref, rtol = 1e-6)
-    @test isapprox(total(1.2, 6.0), E_ref, rtol = 1e-6)
+    # r_c = s/α = 5.71, 5.00, 4.44 — all < L/2 = 6. s = 4 caps accuracy near 1e-7,
+    # so rtol is 1e-5 rather than 1e-6.
+    E_ref = total(0.7, 4.0)
+    @test isapprox(total(0.8, 4.0), E_ref, rtol = 1e-5)
+    @test isapprox(total(0.9, 4.0), E_ref, rtol = 1e-5)
 end
 
 @testset "Ewald3D force matches -grad(energy)" begin
     Random.seed!(20260917)
     n = 10
-    L = (8.0, 8.0, 8.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    α, s = 0.9, 4.0
+    α, s = 0.8, 3.5      # r_c = 4.375 < 6
     short = EwaldShort(n, L; α = α, s = s)
     long  = Ewald3DLong(n, L; α = α, s = s)
 
@@ -884,8 +920,8 @@ end
     poses = [SVector(1.0, 4.0, 4.0), SVector(7.0, 4.0, 4.0)]
     charges = [1.0, -1.0]
     L = (8.0, 8.0, 8.0)
-    l_cond = Ewald3DLong(2, L; α = 0.7, s = 4.0, ϵ_inf = Inf)
-    l_vac  = Ewald3DLong(2, L; α = 0.7, s = 4.0, ϵ_inf = 1.0)
+    l_cond = Ewald3DLong(2, L; α = 0.8, s = 3.0, ϵ_inf = Inf)   # r_c = 3.75 < 4
+    l_vac  = Ewald3DLong(2, L; α = 0.8, s = 3.0, ϵ_inf = 1.0)
     @test !isapprox(long_energy(l_cond, poses, charges), long_energy(l_vac, poses, charges))
 
     # the difference is exactly the dipole term |P|²/(2Vϵ(2ϵ_inf+1))
@@ -899,7 +935,7 @@ end
     L = (8.0f0, 8.0f0, 8.0f0)
     poses = [SVector(1.0f0, 2.0f0, 3.0f0), SVector(5.0f0, 6.0f0, 7.0f0)]
     charges = [1.0f0, -1.0f0]
-    long = Ewald3DLong(2, L; α = 0.7f0, s = 3.0f0)
+    long = Ewald3DLong(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < 4
     @test long_energy(long, poses, charges) isa Float32
 end
 ```
@@ -1066,11 +1102,11 @@ Create `test/electrostatics/test_ewald.jl`:
 @testset "EwaldInteraction composes short and long" begin
     Random.seed!(20260918)
     n = 16
-    L = (9.0, 9.0, 9.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    α, s = 0.8, 4.0
+    α, s = 0.8, 4.0      # r_c = 5.0 < L/2 = 6
     inter = Ewald3D(n, L; α = α, s = s)
     @test inter isa ExTinyMD.AbstractInteraction
 
@@ -1084,7 +1120,7 @@ end
 @testset "coulomb_force! zeroes its buffer" begin
     Random.seed!(20260919)
     n = 8
-    L = (9.0, 9.0, 9.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
     inter = Ewald3D(n, L; α = 0.8, s = 4.0)
@@ -1106,10 +1142,10 @@ end
 @testset "Ewald3D total force matches -grad(energy)" begin
     Random.seed!(20260920)
     n = 10
-    L = (8.0, 8.0, 8.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    inter = Ewald3D(n, L; α = 0.9, s = 4.0)
+    inter = Ewald3D(n, L; α = 0.8, s = 3.5)      # r_c = 4.375 < 6
 
     F = coulomb_force(inter, poses, charges)
     f = p -> coulomb_energy(inter, p, charges)
@@ -1123,10 +1159,10 @@ end
     # Newton's third law: the total force on a periodic neutral system is zero
     Random.seed!(20260921)
     n = 14
-    L = (8.0, 8.0, 8.0)
+    L = (12.0, 12.0, 12.0)
     poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    F = coulomb_force(Ewald3D(n, L; α = 0.9, s = 4.0), poses, charges)
+    F = coulomb_force(Ewald3D(n, L; α = 0.8, s = 3.5), poses, charges)
     @test isapprox(sum(F), zero(SVector{3,Float64}), atol = 1e-10)
 end
 ```
@@ -1213,7 +1249,7 @@ reciprocal space, `s` sets the accuracy (`r_c = s/α`, `k_c = 2αs`).
 ```jldoctest
 julia> using StaticArrays
 
-julia> inter = Ewald3D(2, (10.0, 10.0, 10.0); α = 0.5, s = 4.0);
+julia> inter = Ewald3D(2, (10.0, 10.0, 10.0); α = 1.0, s = 4.0);
 
 julia> poses = [SVector(0.0, 0.0, 0.0), SVector(5.0, 0.0, 0.0)];
 
@@ -1247,7 +1283,7 @@ Expected: PASS.
 - [ ] **Step 5: Fill in the real doctest output**
 
 ```
-julia --project=. -e 'using ExTinyMD, StaticArrays; inter = Ewald3D(2, (10.0,10.0,10.0); α=0.5, s=4.0); poses=[SVector(0.0,0.0,0.0), SVector(5.0,0.0,0.0)]; println(round(coulomb_energy(inter, poses, [1.0,-1.0]); digits=6))'
+julia --project=. -e 'using ExTinyMD, StaticArrays; inter = Ewald3D(2, (10.0,10.0,10.0); α=1.0, s=4.0); poses=[SVector(0.0,0.0,0.0), SVector(5.0,0.0,0.0)]; println(round(coulomb_energy(inter, poses, [1.0,-1.0]); digits=6))'
 ```
 
 Paste the printed value into the docstring.
@@ -1290,9 +1326,11 @@ Create `test/electrostatics/test_long_ewald2d.jl`:
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
     total(α, s) = coulomb_energy(Ewald2D(n, L; α = α, s = s), poses, charges)
-    E_ref = total(0.7, 6.0)
-    @test isapprox(total(0.9, 6.0), E_ref, rtol = 1e-6)
-    @test isapprox(total(1.1, 6.0), E_ref, rtol = 1e-6)
+    # Only L[1], L[2] bound r_c under PeriodicQ2D: r_c = s/α = 2.86, 2.67, 2.50,
+    # all < min(Lx,Ly)/2 = 3.
+    E_ref = total(1.4, 4.0)
+    @test isapprox(total(1.5, 4.0), E_ref, rtol = 1e-5)
+    @test isapprox(total(1.6, 4.0), E_ref, rtol = 1e-5)
 end
 
 @testset "Ewald2D energy against quasi-2D direct sum" begin
@@ -1302,7 +1340,7 @@ end
     poses = [SVector(rand() * L[1], rand() * L[2], 10.0 + 10.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    E_ewald  = coulomb_energy(Ewald2D(n, L; α = 0.9, s = 6.0), poses, charges)
+    E_ewald  = coulomb_energy(Ewald2D(n, L; α = 1.7, s = 4.0), poses, charges)   # r_c = 2.35 < 2.5
     E_direct = naive_energy_Q2D(poses, charges, L, 40)
     # The 2D lattice sum converges slowly in the number of image shells; 40 shells
     # with a neutral configuration gets to roughly this level.
@@ -1315,7 +1353,7 @@ end
     L = (6.0, 6.0, 20.0)
     poses = [SVector(rand() * L[1], rand() * L[2], 5.0 + 10.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    inter = Ewald2D(n, L; α = 0.9, s = 5.0)
+    inter = Ewald2D(n, L; α = 1.3, s = 3.5)      # r_c = 2.69 < 3
 
     F = coulomb_force(inter, poses, charges)
     f = p -> coulomb_energy(inter, p, charges)
@@ -1331,7 +1369,7 @@ end
     L = (6.0, 6.0, 20.0)
     poses = [SVector(rand() * L[1], rand() * L[2], 5.0 + 10.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
-    F = coulomb_force(Ewald2D(n, L; α = 0.9, s = 5.0), poses, charges)
+    F = coulomb_force(Ewald2D(n, L; α = 1.3, s = 3.5), poses, charges)
     @test isapprox(sum(f -> f[1], F), 0.0, atol = 1e-9)
     @test isapprox(sum(f -> f[2], F), 0.0, atol = 1e-9)
     @test isapprox(sum(f -> f[3], F), 0.0, atol = 1e-9)
@@ -1343,7 +1381,7 @@ end
     L = (4.0, 4.0, 2000.0)
     poses = [SVector(1.0, 1.0, 10.0), SVector(2.0, 2.0, 1990.0)]
     charges = [1.0, -1.0]
-    inter = Ewald2D(2, L; α = 0.9, s = 5.0)
+    inter = Ewald2D(2, L; α = 1.6, s = 3.0)      # r_c = 1.875 < 2
     E = coulomb_energy(inter, poses, charges)
     @test isfinite(E)
     F = coulomb_force(inter, poses, charges)
@@ -1611,8 +1649,8 @@ end
     poses = [SVector(rand() * L[1], rand() * L[2], 5.0 + 10.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    plain = Ewald2D(n, L; α = 0.9, s = 5.0)
-    icm   = ICMEwald2D(n, L; α = 0.9, s = 5.0, γ = (0.0, 0.0), N_image = 3)
+    plain = Ewald2D(n, L; α = 1.3, s = 3.5)      # r_c = 2.69 < 3
+    icm   = ICMEwald2D(n, L; α = 1.3, s = 3.5, γ = (0.0, 0.0), N_image = 3)
     @test isapprox(coulomb_energy(icm, poses, charges),
                    coulomb_energy(plain, poses, charges), rtol = 1e-9)
 end
@@ -1626,7 +1664,7 @@ end
     poses = [SVector(rand() * L[1], rand() * L[2], 8.0 + 9.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    E_icm = coulomb_energy(ICMEwald2D(n, L; α = 0.9, s = 6.0, γ = γ, N_image = N_image),
+    E_icm = coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = N_image),
                            poses, charges)
 
     # direct oracle: reflect, then sum real-real fully and real-image at half weight
@@ -1668,10 +1706,14 @@ end
     poses = [SVector(rand() * L[1], rand() * L[2], 2.0 + 6.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-    E_2d = coulomb_energy(ICMEwald2D(n, L; α = 0.9, s = 6.0, γ = γ, N_image = 5),
+    # r_c = 2.35 < min(Lx,Ly)/2 = 2.5. ICMEwald3D builds its Ewald3DLong for the
+    # z-padded box (5, 5, 30), whose smallest side is still 5, so the same bound holds.
+    # N_image = 3, N_pad = 1 keeps the k-set affordable; the ELC truncation error goes
+    # like exp(-2π(L_pad,z − H)/max(Lx,Ly)), which is negligible here.
+    E_2d = coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = 3),
                           poses, charges)
-    E_3d = coulomb_energy(ICMEwald3D(n, L; α = 0.9, s = 6.0, γ = γ, N_image = 5,
-                                     N_pad = 2), poses, charges)
+    E_3d = coulomb_energy(ICMEwald3D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = 3,
+                                     N_pad = 1), poses, charges)
     @test isapprox(E_2d, E_3d, rtol = 1e-3)
 end
 
@@ -1682,7 +1724,7 @@ end
     n = 6
     L = (6.0, 6.0, 20.0)
     γ = (0.3, 0.3)
-    inter = ICMEwald2D(n, L; α = 0.9, s = 5.0, γ = γ, N_image = 3)
+    inter = ICMEwald2D(n, L; α = 1.3, s = 3.5, γ = γ, N_image = 3)   # r_c = 2.69 < 3
     poses = [SVector(rand() * L[1], rand() * L[2], 6.0 + 8.0 * rand()) for _ in 1:n]
     charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
@@ -1806,7 +1848,7 @@ function ICMShort(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T),
     # The reflected stack spans (2 N_image + 1) L_z in z; pad by 2 r_c so the
     # non-periodic z direction finds no spurious images.
     unitcell = SVector{3,T}(L[1], L[2], (2 * N_image + 1) * L[3] + 2 * r_c)
-    cell_list = InPlaceNeighborList(x = buf, cutoff = r_c, unitcell = unitcell,
+    cell_list = InPlaceNeighborList(xpositions = buf, cutoff = r_c, unitcell = unitcell,
                                     parallel = true)
     return ICMShort{T, typeof(cell_list)}(α, r_c, ϵ, L, n_atoms, N_image, cell_list, n_ref)
 end
@@ -1814,7 +1856,7 @@ end
 function icm_short_energy(short::ICMShort{T}, ref_poses::Vector{SVector{3,T}},
                           ref_charges::Vector{T}) where {T}
     n, α, r_c = short.n_atoms, short.α, short.r_c
-    update!(short.cell_list, ref_poses)
+    update!(short.cell_list, xpositions = ref_poses)
     nb = neighborlist!(short.cell_list)
 
     E = zero(T)
@@ -1840,7 +1882,7 @@ function icm_short_force!(F::Vector{SVector{3,T}}, short::ICMShort{T},
     n, α, r_c = short.n_atoms, short.α, short.r_c
     L, ϵ = short.L, short.ϵ
     pref = one(T) / (4π * ϵ)
-    update!(short.cell_list, ref_poses)
+    update!(short.cell_list, xpositions = ref_poses)
     nb = neighborlist!(short.cell_list)
 
     @inbounds for (i, j, r) in nb
@@ -2065,12 +2107,12 @@ end
     Random.seed!(20260930)
     n, L = 20, 10.0
     boundary, atoms, info = _charged_system(n, L)
-    inter = Ewald3D(n, (L, L, L); α = 0.9, s = 4.0)
+    inter = Ewald3D(n, (L, L, L); α = 1.0, s = 4.0)   # r_c = 4.0 < L/2 = 5
     finder = CellList3D(info, inter.short.r_c, boundary, 1)
 
     sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
                 interactions = [(inter, finder)],
-                loggers = [TemperatureLogger(100)],
+                loggers = [TemperatureLogger(100; output = false)],
                 simulator = VerletProcess(dt = 0.001))
 
     poses = [SVector(p.position[1], p.position[2], p.position[3])
@@ -2088,11 +2130,11 @@ end
     # give the two species different masses so a missing division shows up
     atoms = [Atom(type = a.type, mass = a.type == 1 ? 1.0 : 4.0, charge = a.charge)
              for a in atoms]
-    inter = Ewald3D(n, (L, L, L); α = 0.9, s = 4.0)
+    inter = Ewald3D(n, (L, L, L); α = 1.0, s = 4.0)   # r_c = 4.0 < L/2 = 5
     finder = CellList3D(info, inter.short.r_c, boundary, 1)
     sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
                 interactions = [(inter, finder)],
-                loggers = [TemperatureLogger(100)],
+                loggers = [TemperatureLogger(100; output = false)],
                 simulator = VerletProcess(dt = 0.001))
 
     poses = [SVector(p.position[1], p.position[2], p.position[3])
@@ -2117,13 +2159,13 @@ end
     Random.seed!(20260932)
     n, L = 30, 12.0
     boundary, atoms, info = _charged_system(n, L)
-    inter = Ewald3D(n, (L, L, L); α = 0.9, s = 3.5)
+    inter = Ewald3D(n, (L, L, L); α = 0.8, s = 3.5)   # r_c = 4.375 < L/2 = 6
     lj = LennardJones(ϵ = 1.0, σ = 1.0, cutoff = 3.0)
     finder = CellList3D(info, max(inter.short.r_c, 3.0), boundary, 1)
 
     sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
                 interactions = [(lj, finder), (inter, finder)],
-                loggers = [TemperatureLogger(1000)],
+                loggers = [TemperatureLogger(1000; output = false)],
                 simulator = VerletProcess(dt = 1e-4))
 
     E0 = energy(inter, finder, sys, info)
@@ -2140,11 +2182,11 @@ end
     Random.seed!(20260933)
     n, L = 12, 8.0
     boundary, atoms, info = _charged_system(n, L)
-    inter = ICMEwald2D(n, (L, L, L); α = 0.9, s = 4.0, γ = (0.3, 0.3), N_image = 3)
+    inter = ICMEwald2D(n, (L, L, L); α = 1.0, s = 3.0, γ = (0.3, 0.3), N_image = 3)   # r_c = 3.0 < 4
     finder = NoNeighborFinder(Float64)   # ICM keeps its own cell list
     sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
                 interactions = [(inter, finder)],
-                loggers = [TemperatureLogger(100)],
+                loggers = [TemperatureLogger(100; output = false)],
                 simulator = VerletProcess(dt = 0.001))
 
     poses = [SVector(p.position[1], p.position[2], p.position[3])
@@ -2379,10 +2421,15 @@ n, L = 100, (20.0, 20.0, 20.0)
 poses   = [SVector(rand()*L[1], rand()*L[2], rand()*L[3]) for _ in 1:n]
 charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
 
-inter = Ewald3D(n, L; α = 0.3, s = 4.0)
+inter = Ewald3D(n, L; α = 0.5, s = 4.0)   # r_c = s/α = 8.0, below L/2 = 10
 E = coulomb_energy(inter, poses, charges)
 F = coulomb_force(inter, poses, charges)
 ```
+
+The page must state the `r_c < min(L)/2` rule explicitly at this point, because it is the
+first thing a user hits: `α` and `s` are not independent of the box, and picking them
+carelessly raises a `UNIT CELL CHECK FAILED` error from CellListMap rather than returning a
+slightly wrong number.
 
 The **MD interface** is the same object added to an `MDSys`, where
 `update_acceleration!` is called for you each step.
