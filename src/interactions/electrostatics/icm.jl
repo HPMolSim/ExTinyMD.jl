@@ -117,7 +117,7 @@ function icm_short_energy(short::ICMShort{T}, ref_poses::Vector{SVector{3,T}},
         E -= ref_charges[i]^2 * α / sqrt(T(π))
     end
 
-    return E / (4π * short.ϵ)
+    return E / (4 * T(π) * short.ϵ)
 end
 
 function icm_short_force!(F::Vector{SVector{3,T}}, short::ICMShort{T},
@@ -125,7 +125,7 @@ function icm_short_force!(F::Vector{SVector{3,T}}, short::ICMShort{T},
                           ref_charges::Vector{T}) where {T}
     n, α, r_c = short.n_atoms, short.α, short.r_c
     L, ϵ = short.L, short.ϵ
-    pref = one(T) / (4π * ϵ)
+    pref = one(T) / (4 * T(π) * ϵ)
     update!(short.cell_list, xpositions = ref_poses)
     nb = neighborlist!(short.cell_list)
 
@@ -201,7 +201,7 @@ Base.show(io::IO, i::ICM) =
 # summed over real i and all reflected j.
 function _elc_energy(icm::ICM{T}, n_ref::Int) where {T}
     L = icm.L
-    pref = -T(π) / (L[1] * L[2] * (2 * icm.N_pad + 1) * L[3]) / (4π * icm.long.ϵ)
+    pref = -T(π) / (L[1] * L[2] * (2 * icm.N_pad + 1) * L[3]) / (4 * T(π) * icm.long.ϵ)
     E = zero(T)
     @inbounds for i in 1:icm.n_atoms
         z_i = icm.ref_poses[i][3]
@@ -216,7 +216,7 @@ end
 
 function _elc_force!(F::Vector{SVector{3,T}}, icm::ICM{T}, n_ref::Int) where {T}
     L = icm.L
-    pref = T(π) / (L[1] * L[2] * (2 * icm.N_pad + 1) * L[3]) / (4π * icm.long.ϵ)
+    pref = T(π) / (L[1] * L[2] * (2 * icm.N_pad + 1) * L[3]) / (4 * T(π) * icm.long.ϵ)
     @inbounds for i in 1:icm.n_atoms
         z_i = icm.ref_poses[i][3]
         t = zero(T)
@@ -229,6 +229,7 @@ function _elc_force!(F::Vector{SVector{3,T}}, icm::ICM{T}, n_ref::Int) where {T}
 end
 
 function coulomb_energy(icm::ICM{T}, poses, charges; neighbor_list = nothing) where {T}
+    check_neutrality(charges)
     n_ref = icm_reflect!(icm.ref_poses, icm.ref_charges, icm.γ, icm.L, icm.N_image,
                          poses, charges)
     # n_target = n_atoms is load-bearing: the long-range sum runs over REAL

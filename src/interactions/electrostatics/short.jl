@@ -87,7 +87,7 @@ function short_energy(short::EwaldShort{T}, poses, charges;
         E -= charges[i]^2 * α / sqrt(T(π))
     end
 
-    return E / (4π * short.ϵ)
+    return E / (4 * T(π) * short.ϵ)
 end
 
 # -dE/dr for E(r) = q_i q_j erfc(α r)/r
@@ -106,7 +106,7 @@ function short_force!(F::Vector{SVector{3,T}}, short::EwaldShort{T}, poses, char
     nb = neighbor_list === nothing ? _refresh_neighbors!(short, poses) : neighbor_list
     α, r_c, ϵ = short.α, short.r_c, short.ϵ
     conv, L = short.convention, short.L
-    pref = one(T) / (4π * ϵ)
+    pref = one(T) / (4 * T(π) * ϵ)
 
     @inbounds for (i, j, r) in nb
         (r < r_c && r > zero(T)) || continue

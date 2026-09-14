@@ -158,6 +158,41 @@ end
                    coulomb_energy(inter, poses, charges), rtol = 1e-10)
 end
 
+@testset "adapter writes acceleration = force/mass for ICM" begin
+    # FIX 6: the ICM adapter testset above only ever called `energy`, so
+    # `ExTinyMD.update_acceleration!` (and therefore `coulomb_force!` reached
+    # through the adapter) was never exercised for ICM.
+    Random.seed!(20260936)
+    n, L = 12, 8.0
+    boundary, atoms, info = _charged_system(n, L)
+    # give the two species different masses so a missing division shows up
+    atoms = [Atom(type = a.type, mass = a.type == 1 ? 1.0 : 4.0, charge = a.charge)
+             for a in atoms]
+    inter = ICMEwald2D(n, (L, L, L); α = 1.0, s = 3.0, γ = (0.3, 0.3), N_image = 3)   # r_c = 3.0 < 4
+    finder = NoNeighborFinder(Float64)   # ICM keeps its own cell list
+    sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
+                interactions = [(inter, finder)],
+                loggers = [TemperatureLogger(100; output = false)],
+                simulator = VerletProcess(dt = 0.001))
+
+    poses = [SVector(p.position[1], p.position[2], p.position[3])
+             for p in info.particle_info]
+    charges = [atoms[p.id].charge for p in info.particle_info]
+    F = coulomb_force(inter, poses, charges)
+
+    for p in info.particle_info
+        p.acceleration = Point(0.0, 0.0, 0.0)
+    end
+    ExTinyMD.update_acceleration!(inter, finder, sys, info)
+
+    for (slot, p) in enumerate(info.particle_info)
+        m = atoms[p.id].mass
+        for d in 1:3
+            @test isapprox(p.acceleration[d], F[slot][d] / m, rtol = 1e-10)
+        end
+    end
+end
+
 @testset "adapter energy is independent of which finder supplies candidate pairs" begin
     # FIX 1 regression. `short_energy` must treat a supplied neighbour list as
     # candidate pairs only and recompute `r` itself:

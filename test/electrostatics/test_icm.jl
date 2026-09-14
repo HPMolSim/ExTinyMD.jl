@@ -190,3 +190,40 @@ end
                        rtol = 1e-5, atol = 1e-8)
     end
 end
+
+@testset "ICMEwald3D force matches -grad(energy) with real-image pairs in range" begin
+    # FIX 3: both finite-difference testsets above use ICMEwald2D, so
+    # `_elc_force!` and the `n_target < n_atoms` branch of `Ewald3DLong.long_force!`
+    # (exercised whenever ICM's long-range solver is an `Ewald3DLong`, since real
+    # particles are targets against all reflected charges as sources) are never
+    # gradient-checked. Same thin-slab, real-image-pairs-in-range configuration
+    # as the ICMEwald2D testset above, but through the ICMEwald3D + ELC route.
+    #
+    # Controller-measured: worst relative error 1.0e-5 on a force component of
+    # magnitude 2.8e-5 (absolute error 3e-10), and 7.4e-8 elsewhere — hence the
+    # generous atol, which matters only for near-zero components.
+    L = (6.0, 6.0, 5.0)
+    γ = (0.8, 0.8)
+    poses = [SVector(1.0, 1.0, 0.5), SVector(3.0, 1.5, 4.6), SVector(1.5, 3.5, 2.5),
+             SVector(4.0, 4.0, 0.7), SVector(2.0, 4.5, 4.3), SVector(4.5, 2.0, 2.0)]
+    charges = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+    n = length(charges)
+
+    # r_c = 2.692 < min(Lx,Ly)/2 = 3. ICMEwald3D builds its Ewald3DLong for the
+    # z-padded box (6, 6, 25) (N_pad = 2: (2*2+1)*5 = 25), whose smallest side is
+    # still 6, so the same bound holds there too.
+    inter = ICMEwald3D(n, L; α = 1.3, s = 3.5, γ = γ, N_image = 3, N_pad = 2)
+
+    # Guard the intent: a charge at height z has its own image at -z, so the pair
+    # separation is 2z; assert at least one real charge is close enough to a wall
+    # for that pair to fall inside the cutoff.
+    r_c = inter.short.r_c
+    @test 2 * minimum(p[3] for p in poses) < r_c
+
+    F = coulomb_force(inter, poses, charges)
+    f = p -> coulomb_energy(inter, p, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
+                       rtol = 1e-4, atol = 1e-8)
+    end
+end

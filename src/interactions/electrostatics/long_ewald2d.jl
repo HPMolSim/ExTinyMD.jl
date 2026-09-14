@@ -97,7 +97,9 @@ end
 
 Accumulate the reciprocal-space force into `F`. **Does not zero `F` first.**
 Sources span all `long.n_atoms` charges; the force is written only for the
-first `n_target` of them.
+first `n_target` of them, using the full coefficient (no factor of ½) — the
+image-charge convention, self-consistent because an image moves at twice the
+rate of its source.
 """
 function long_force!(F::Vector{SVector{3,T}}, long::Ewald2DLong{T}, poses,
                      charges; n_target::Int = long.n_atoms) where {T}

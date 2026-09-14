@@ -204,9 +204,13 @@ This replaces the per-pair `ForwardDiff.derivative` call in
 closed-form expression, no dual numbers in the inner loop, and ForwardDiff leaves the
 dependency list.
 
-Threading: pairs partitioned across tasks with per-task force buffers reduced at the end.
-Not `Threads.threadid()` indexing — that is unsound under task migration and is the cause of
-the `output[Threads.threadid() - 1]` indexing bug in
+Threading: the implementation is serial — this port does not partition pairs across tasks.
+Threading is deferred to a follow-up. Going serial for now trivially avoids the defect the
+reference has to guard against: a `@threads` region opened *inside* the inner loop (see §5.4),
+which is unsound and expensive to launch repeatedly; a serial loop has no thread region to get
+wrong. Whenever threading is added, it must **not** use `Threads.threadid()` for accumulator
+indexing — that is unsound under task migration and is the cause of the
+`output[Threads.threadid() - 1]` indexing bug in
 `ParticleMeshEwald/src/energy.jl:energy_short_kernel!`, where `threadid() == 1` indexes
 element 0.
 
@@ -254,8 +258,10 @@ Two structural changes from the reference:
 
 - `Ewald2D_long_force_k0!` and `Ewald2D_long_force_k!` open a `@threads` region *inside* the
   per-`i` loop, so a thread region is launched once per particle (and in `force_k!`, once per
-  particle per wavevector) with `Atomic{T}` accumulation inside. The port threads the outer
-  loop over `i` with plain per-task accumulators.
+  particle per wavevector) with `Atomic{T}` accumulation inside. The port is serial — it does
+  not thread the outer loop over `i` — deferring threading to a follow-up; a serial loop avoids
+  the reference's defect (a thread region launched inside the inner loop) trivially, since
+  there is no thread region to launch repeatedly or index into.
 - Guard `exp(±k z_ij)` against overflow. `ICM_Ewald2D_long_force_k!` already does this with
   an `abs(k*z_ij) > 650` test, but the non-ICM `Ewald2D_long_force_k!` does not, and quasi-2D
   systems with large `L_z` can reach it. The paired `erfc` factor underflows to zero at the

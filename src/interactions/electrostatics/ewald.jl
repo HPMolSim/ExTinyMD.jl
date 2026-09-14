@@ -40,6 +40,7 @@ Total electrostatic energy. `poses` is AoS; no ExTinyMD type is required.
 """
 function coulomb_energy(inter::EwaldInteraction{T}, poses, charges;
                         neighbor_list = nothing) where {T}
+    check_neutrality(charges)
     return short_energy(inter.short, poses, charges; neighbor_list = neighbor_list) +
            long_energy(inter.long, poses, charges)
 end

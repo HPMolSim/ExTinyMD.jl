@@ -81,3 +81,24 @@ end
     long = Ewald3DLong(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < 4
     @test long_energy(long, poses, charges) isa Float32
 end
+
+@testset "coulomb_energy/coulomb_force preserve Float32 through the composite" begin
+    # FIX 2 regression. `long_energy` alone returning Float32 (the testset above)
+    # passed even while the composite silently promoted to Float64 through the
+    # `4π` literals in short.jl and icm.jl — that earlier test certified only the
+    # one file that was right. Check the full plans that a user actually calls.
+    L = (8.0f0, 8.0f0, 8.0f0)
+    poses = [SVector(1.0f0, 2.0f0, 3.0f0), SVector(5.0f0, 6.0f0, 7.0f0)]
+    charges = [1.0f0, -1.0f0]
+
+    ewald3d = Ewald3D(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < min(L)/2 = 4
+    @test coulomb_energy(ewald3d, poses, charges) isa Float32
+    F3d = coulomb_force(ewald3d, poses, charges)
+    @test F3d isa Vector{SVector{3,Float32}}
+
+    # r_c = 3.75 < min(L[1], L[2])/2 = 4, as required for ICM/Ewald2D
+    icm = ICMEwald2D(2, L; α = 0.8f0, s = 3.0f0, γ = (0.3f0, 0.3f0), N_image = 2)
+    @test coulomb_energy(icm, poses, charges) isa Float32
+    Ficm = coulomb_force(icm, poses, charges)
+    @test Ficm isa Vector{SVector{3,Float32}}
+end

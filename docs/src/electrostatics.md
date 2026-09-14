@@ -217,6 +217,25 @@ long_force!
 reflecting each real particle into an image series along z (`icm_reflect!`,
 internal).
 
+!!! warning "Particles must stay inside the slab"
+    ICM requires every real particle's z coordinate to lie within `[0, L[3]]`.
+    The reflection recurrence (`z_up = 2L_z - z`, `z_down = -z`) and
+    [`ICMShort`](@ref)'s cell-list z-padding both assume this; nothing in the
+    code enforces it. In a free-z MD run a particle can drift outside that
+    range, at which point the image series no longer represents the physical
+    reflection and the resulting energies and forces are meaningless. Confine
+    z, e.g. with a wall potential or reflecting boundary, if particles are not
+    otherwise guaranteed to stay inside `[0, L[3]]`.
+
+!!! note "`neighbor_list` is accepted and ignored"
+    [`coulomb_energy`](@ref) and [`coulomb_force!`](@ref) for [`ICM`](@ref)
+    both take a `neighbor_list` keyword for interface parity with
+    [`EwaldInteraction`](@ref), but they never use it: ICM builds and
+    maintains its own cell list (via [`ICMShort`](@ref)) over the reflected
+    configuration, which no externally supplied neighbour list can substitute
+    for (the reflected positions do not exist until `coulomb_energy` builds
+    them). This is deliberate, not an oversight.
+
 - `γ = (γ_up, γ_down)` are the dielectric contrast ratios at the upper and
   lower walls, conventionally `γ = (ϵ_mid - ϵ_out) / (ϵ_mid + ϵ_out)` for each
   interface. `γ = 0` is an index-matched (invisible) wall; `γ → ±1` approaches
