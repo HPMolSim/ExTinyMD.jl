@@ -389,8 +389,18 @@ single discipline that has caught the most.
 ## 6b. Release checklist — `[sources]` must be removed across all five together
 
 ExTinyMD 0.3 is **not in the General registry** (only 0.2.7 is), so each decoupled package
-needs a `[sources]` override pinning `ExTinyMD = {path = "../ExTinyMD.jl"}` to resolve during
-this phase.
+needs a `[sources]` override to resolve during this phase.
+
+**Use the git URL, not a sibling path.** A `{path = "../ExTinyMD.jl"}` pin resolves locally but
+cannot work in CI, where only the one repository is checked out and `actions/checkout` will not
+write outside the workspace. Verified on ParticleMeshEwald: with a path pin, `Pkg.test()` fails
+with `expected package ExTinyMD [fec76197] to exist at path .../ExTinyMD.jl`. Use
+`{url = "https://github.com/HPMolSim/ExTinyMD.jl", rev = "main"}`.
+
+A package pinned to an **unmerged branch** of a sibling (SoEwald2D needs QuasiEwald, whose
+decoupling is on `decouple-extinymd`) must pin that branch by name and be updated to
+`rev = "main"` once it lands. That is a second, per-package gate on top of the registration
+gate below.
 
 That is not merely inconvenient for outside users. **General's automerge rejects any package
 whose `Project.toml` carries a `[sources]` section**, so no package can be tagged or
@@ -398,13 +408,36 @@ registered while the override is present. Five inline comments will not reliably
 remembered, so it is recorded here as one coordinated item:
 
 - [ ] Register ExTinyMD 0.3 (and settle its version number — it has read `0.3.0` since before
-      Phase 1, with three phases of new exported API added under it)
-- [ ] Remove `[sources]` from ParticleMeshEwald
-- [ ] Remove `[sources]` from SoEwald2D
-- [ ] Remove `[sources]` from FastSpecSoG
-- [ ] Remove `[sources]` from EwaldSummations
-- [ ] Remove `[sources]` from QuasiEwald
-- [ ] Confirm each resolves from the registry with no local path
+      Phase 1, with three phases of new exported API added under it). **This is the gate on
+      everything else in this list.**
+- [ ] Repoint SoEwald2D's QuasiEwald pin from `rev = "decouple-extinymd"` to `rev = "main"`
+      once QuasiEwald PR #5 lands
+- [ ] Remove `[sources]` from ParticleMeshEwald (PR #8 merged 2026-09-15; repo is
+      `flatironinstitute/ParticleMeshEwald.jl`, **not** HPMolSim, and it is the one package of
+      the five **not** registered in General)
+- [ ] Remove `[sources]` from QuasiEwald (PR #5; 0.2.1 → 0.3.0)
+- [ ] Remove `[sources]` from SoEwald2D (0.1.5 → 0.2.0)
+- [ ] Remove `[sources]` from FastSpecSoG (0.1.0 → 0.2.0)
+- [ ] ~~Remove `[sources]` from EwaldSummations~~ — out of scope, never decoupled, stays on
+      CellListMap 0.9 and ExTinyMD 0.2
+- [ ] Confirm each resolves from the registry with no local path and no git URL
+
+### Landed so far
+
+| | state |
+|---|---|
+| ExTinyMD Phase 1 (electrostatics stdlib) | merged, PRs #11/#12 |
+| ExTinyMD Phase 2 (PME3D/ICMPME3D via FINUFFT) | merged, PR #13 |
+| ParticleMeshEwald (Phase 3a) | merged, PR #8 |
+| QuasiEwald (Phase 3b) | PR #5 open |
+
+### A CI trap worth one line
+
+**Check each package's CI matrix against the `julia` compat floor you just raised.** QuasiEwald's
+matrix tested `'1.9'` while the decoupling raised its floor to `1.10`, so a job failed for no
+reason but the mismatch. Prefer `'lts'` + `'1'` + `'nightly'`, which tracks the floor
+automatically, as ExTinyMD's own CI does. SoEwald2D (`'1'`) and FastSpecSoG
+(`'1.10'`/`'1.11'`/`'nightly'`) were already fine.
 
 Until that is done, all five are usable from sibling checkouts only. This is a deliberate,
 documented interim state, not an oversight — but it is the gate on any of them being released.
