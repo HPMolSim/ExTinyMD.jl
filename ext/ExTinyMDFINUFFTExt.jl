@@ -182,4 +182,13 @@ function ExTinyMD.PME3D(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T
     return EwaldInteraction(short, long, n_atoms)
 end
 
+function ExTinyMD.ICMPME3D(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, γ::Tuple{T,T},
+                           N_image::Int, N_pad::Int, ϵ::T = one(T)) where {T}
+    n_ref = n_atoms * (1 + 2 * N_image)
+    L_pad = (L[1], L[2], (2 * N_pad + 1) * L[3])
+    long  = PME3DLong(n_ref, L_pad; α = α, s = s, ϵ = ϵ, ϵ_inf = T(Inf))
+    short = ICMShort(n_atoms, L; α = α, s = s, ϵ = ϵ, N_image = N_image)
+    return ICM(long, short, γ, N_image, n_atoms, L; elc = true, N_pad = N_pad)
+end
+
 end # module

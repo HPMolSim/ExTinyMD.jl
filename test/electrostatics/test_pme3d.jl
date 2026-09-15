@@ -166,3 +166,46 @@ end
     @test isfinite(E1)
     @test abs(E1 - E0) < 0.05 * max(abs(E0), 1.0)
 end
+
+@testset "ICMPME3D matches ICMEwald3D" begin
+    # Same physics, same k-set, different reciprocal-space engine.
+    Random.seed!(20260928)
+    n = 8
+    L = (5.0, 5.0, 10.0)
+    γ = (0.3, 0.3)
+    poses = [SVector(rand() * L[1], rand() * L[2], 2.0 + 6.0 * rand()) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    # r_c = 2.35 < min(Lx,Ly)/2 = 2.5; N_image = 3 needs N_pad >= 2
+    a = ICMEwald3D(n, L; α = 1.7, s = 4.0, γ = γ, N_image = 3, N_pad = 2)
+    b = ICMPME3D(n, L;  α = 1.7, s = 4.0, γ = γ, N_image = 3, N_pad = 2)
+
+    @test isapprox(coulomb_energy(b, poses, charges),
+                   coulomb_energy(a, poses, charges), rtol = 1e-10)
+
+    Fa = coulomb_force(a, poses, charges)
+    Fb = coulomb_force(b, poses, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(Fb[i][d], Fa[i][d], rtol = 1e-8, atol = 1e-14)
+    end
+end
+
+@testset "ICMPME3D force matches -grad(energy)" begin
+    # Independent of the ICMEwald3D comparison above: a finite-difference check
+    # constrains the PME force path on its own.
+    Random.seed!(20260929)
+    n = 6
+    L = (6.0, 6.0, 5.0)
+    γ = (0.8, 0.8)
+    poses = [SVector(1.0, 1.0, 0.5), SVector(3.0, 1.5, 4.6), SVector(1.5, 3.5, 2.5),
+             SVector(4.0, 4.0, 0.7), SVector(2.0, 4.5, 4.3), SVector(4.5, 2.0, 2.0)]
+    charges = [1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+
+    inter = ICMPME3D(n, L; α = 1.3, s = 3.5, γ = γ, N_image = 3, N_pad = 2)
+    F = coulomb_force(inter, poses, charges)
+    f = p -> coulomb_energy(inter, p, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
+                       rtol = 1e-4, atol = 1e-8)
+    end
+end
