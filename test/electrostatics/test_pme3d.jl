@@ -167,6 +167,27 @@ end
     @test abs(E1 - E0) < 0.05 * max(abs(E0), 1.0)
 end
 
+@testset "PME3D force matches -grad(energy)" begin
+    # Independent of the Ewald3D comparison: PME3D and Ewald3D share EwaldShort,
+    # EwaldInteraction and the adapter, so agreement between them cannot detect a
+    # defect in any of those. A finite-difference check constrains PME3D's own
+    # energy against PME3D's own force and nothing else.
+    Random.seed!(20260916)
+    n = 12
+    L = (12.0, 12.0, 12.0)
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    inter = PME3D(n, L; α = 0.8, s = 3.5)   # r_c = 4.375 < L/2 = 6
+
+    F = coulomb_force(inter, poses, charges)
+    f = p -> coulomb_energy(inter, p, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
+                       rtol = 1e-4, atol = 1e-8)
+    end
+end
+
 @testset "ICMPME3D matches ICMEwald3D" begin
     # Same physics, same k-set, different reciprocal-space engine.
     Random.seed!(20260928)
@@ -208,4 +229,33 @@ end
         @test isapprox(F[i][d], -fd_gradient(f, poses, i, d; h = 1e-5),
                        rtol = 1e-4, atol = 1e-8)
     end
+end
+
+@testset "PME3D and ICMPME3D forward ϵ" begin
+    # Same check test_ewald.jl applies to Ewald3D. Without it, a dropped or
+    # mis-forwarded ϵ would agree with a comparison partner that also defaulted
+    # to ϵ = 1 and pass unnoticed.
+    Random.seed!(20260917)
+    n = 12
+    L = (12.0, 12.0, 12.0)
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    E1 = coulomb_energy(PME3D(n, L; α = 0.8, s = 3.5, ϵ = 1.0), poses, charges)
+    E2 = coulomb_energy(PME3D(n, L; α = 0.8, s = 3.5, ϵ = 2.0), poses, charges)
+    @test isapprox(E2, E1 / 2, rtol = 1e-12)
+
+    F1 = coulomb_force(PME3D(n, L; α = 0.8, s = 3.5, ϵ = 1.0), poses, charges)
+    F2 = coulomb_force(PME3D(n, L; α = 0.8, s = 3.5, ϵ = 2.0), poses, charges)
+    for i in 1:n
+        @test isapprox(F2[i], F1[i] ./ 2, rtol = 1e-12)
+    end
+
+    # and the ICM route, on a confined slab
+    Ls = (5.0, 5.0, 10.0)
+    ps = [SVector(rand() * Ls[1], rand() * Ls[2], 2.0 + 6.0 * rand()) for _ in 1:n]
+    kw = (; α = 1.7, s = 4.0, γ = (0.3, 0.3), N_image = 3, N_pad = 2)  # r_c = 2.353 < 2.5
+    G1 = coulomb_energy(ICMPME3D(n, Ls; kw..., ϵ = 1.0), ps, charges)
+    G2 = coulomb_energy(ICMPME3D(n, Ls; kw..., ϵ = 2.0), ps, charges)
+    @test isapprox(G2, G1 / 2, rtol = 1e-12)
 end
