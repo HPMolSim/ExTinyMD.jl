@@ -458,6 +458,65 @@ and FastSpecSoG now resolve entirely from the registry. Only SoEwald2D still car
 only because it test-depends on QuasiEwald — so the chain of gates is now
 `QuasiEwald PR #5 → tag → register → SoEwald2D's pin can go`.
 
+## 6c. The finding this phase actually produced
+
+Decoupling was supposed to be a restructuring. It turned out to be a bug hunt, and the bugs
+were all the same shape.
+
+**Every package whose forces were driven through an ExTinyMD adapter had a pre-existing
+force/acceleration defect, and in every case a uniform test parameter hid it.**
+
+| package | defect | why no test caught it |
+|---|---|---|
+| QuasiEwald | `QuasiEwald_Fs!`'s `@distributed` loop computed `psize = div(n_atoms, nprocs())` and iterated `1:n_atoms` over a `neighbor_list` of length `O(n_atoms · neighbors)`, so it silently dropped most pairs — while the energy path iterated the full list. Force did not correspond to the package's own energy. | tolerances loose enough to absorb it; the loosest passing check was `error_i < 1e-2` against ICM |
+| SoEwald2D | `SoEwald2D_Fs!` never divided by mass at all, while `SoEwald2D_Fl!` did. A force was accumulated as an acceleration. | `mass = 1.0` in every test, where force and acceleration coincide |
+| ParticleMeshEwald | none — it is energy-only and has no force path | — |
+
+The mechanism is the same each time: the adapter is the only place where the force/mass/id-slot
+conventions of two systems meet, and as long as nothing varies across particles, a convention
+error is unobservable. Decoupling forces that meeting into one small function, which is why it
+surfaces them.
+
+**The practical lesson, and it is cheap:** an adapter test with uniform mass and uniform charge
+tests almost nothing. Give every particle a distinct mass and a distinct charge, and permute
+slot order against id order. In QuasiEwald that one test caught an id/slot fault and a dropped
+mass division at 36 of 39 assertions each, while the trajectory test caught neither.
+
+### A second, independent trap: what a trajectory test can assert
+
+Bounding the drift of **electrostatic energy** over a trajectory cannot detect a force error.
+Confirmed three separate ways:
+
+- QuasiEwald's review injected an exact 2× force fault: electrostatic drift moved from 9.46e-4
+  to 9.41e-4, identical to two digits, and the 1e-1 bound passed.
+- SoEwald2D swept 8 seeds: the clean and faulted `|ΔE_elec|` ranges **overlap**.
+- SoEwald2D's own 2× sabotage passed the `E_elec` bound while failing the `KE + E_elec` one.
+
+The reason is physical, not statistical: `E_elec` is ~1% of the total and its value after N
+steps is set by thermal motion, not by whether the force is right. The quantity that responds
+is the conserved one — `VerletProcess` with `NoThermoStat` is symplectic and conserves
+`KE + PE`, so a 2× force makes it conserve `KE + 2·PE` and `KE + E_elec` then drifts at
+**first** order. Assert on `KE + E_elec`, with the bound taken from a measured clean drift.
+
+### And a third: sentinel guards hide division-by-zero
+
+ExTinyMD's `position_check*` returns an all-zero sentinel when no periodic image is inside the
+cutoff, so every caller guards with `iszero(r_sq)`. That guard *also* incidentally skipped
+coincident pairs. Replacing the sentinel with the explicit `r_sq ≥ r_c^2` test that a
+framework-free core wants keeps those pairs, and any force built from a unit vector `d/r` then
+returns `NaN`.
+
+QuasiEwald shipped this to final review: it fired for any two particles sharing an `(x,y)`
+column **and** for any pair whose in-plane separation was an exact multiple of `Lx`/`Ly`, so
+the minimum image wrapped to exactly zero — i.e. any lattice initialisation. The fix is to
+guard the in-plane components explicitly (the limit is zero, approached linearly, and symmetry
+requires it since `dx = dy = 0`), which is also strictly better than the old skip, because the
+z-force at `ρ = 0` is finite and the sentinel was discarding it.
+
+**So when replacing a sentinel guard with an explicit cutoff test, always add a `r = 0` case
+and a test for it.** In this phase that substitution happened three times and was a latent NaN
+every time.
+
 ## 7. Sequencing
 
 **Order: QuasiEwald → SoEwald2D → FastSpecSoG.** ParticleMeshEwald is done; EwaldSummations
