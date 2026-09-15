@@ -39,15 +39,14 @@ end
 end
 
 @testset "PME3DLong buffers survive interleaved calls" begin
-    # Only masked-in grid points are written in some loops, and the plan reuses its
-    # buffers across calls, so a stale buffer — or a skipped finufft_setpts! — would
-    # contaminate a later result.
+    # Verifies that a *reused* plan gives the correct answer after an interleaved
+    # call at a different n_target, checked against an independent solver
+    # (Ewald3DLong) rather than only self-consistency.
     #
-    # The dirtying call must differ in point COUNT as well as in positions. An
-    # earlier version of this test used the same n_target throughout, which meant a
-    # reintroduced "skip setpts! when the count is unchanged" optimisation would
-    # still pass: both B evaluations would land on the same original setpts state
-    # and agree with each other while being wrong.
+    # The dirtying call must differ in point COUNT as well as in positions: if it
+    # only changed positions, two equally-wrong results computed the same way could
+    # still agree with each other while both being incorrect. Comparing against
+    # Ewald3DLong at the end rules that out.
     Random.seed!(31337)
     n = 20
     L = (12.0, 12.0, 12.0)
@@ -75,4 +74,46 @@ end
     # checks the fallback message by other means.
     @test isdefined(ExTinyMD, :PME3D)
     @test isdefined(ExTinyMD, :ICMPME3D)
+end
+
+@testset "PME3DLong force equals Ewald3DLong force" begin
+    # Controller measured 5.9e-15 relative / 2.6e-17 absolute on this shape.
+    Random.seed!(7)
+    n = 25
+    L = (12.0, 12.0, 12.0)
+    α, s = 0.8, 3.5
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    ewald = Ewald3DLong(n, L; α = α, s = s)
+    pme   = PME3DLong(n, L; α = α, s = s)
+
+    for nt in (n, 12)
+        Fe = [zero(SVector{3,Float64}) for _ in 1:n]
+        Fp = [zero(SVector{3,Float64}) for _ in 1:n]
+        long_force!(Fe, ewald, poses, charges; n_target = nt)
+        long_force!(Fp, pme,   poses, charges; n_target = nt)
+        for i in 1:nt, d in 1:3
+            @test isapprox(Fp[i][d], Fe[i][d], rtol = 1e-10, atol = 1e-16)
+        end
+    end
+end
+
+@testset "PME3DLong force accumulates, does not zero" begin
+    # The composite coulomb_force! zeroes once and lets short and long accumulate.
+    Random.seed!(8)
+    n = 10
+    L = (12.0, 12.0, 12.0)
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+    pme = PME3DLong(n, L; α = 0.8, s = 3.5)
+
+    F1 = [zero(SVector{3,Float64}) for _ in 1:n]
+    long_force!(F1, pme, poses, charges)
+    F2 = [zero(SVector{3,Float64}) for _ in 1:n]
+    long_force!(F2, pme, poses, charges)
+    long_force!(F2, pme, poses, charges)
+    for i in 1:n
+        @test isapprox(F2[i], 2 .* F1[i], rtol = 1e-12)
+    end
 end

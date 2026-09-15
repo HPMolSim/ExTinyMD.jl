@@ -113,4 +113,66 @@ function ExTinyMD.long_energy(long::PME3DLong{T}, poses, charges;
     return E
 end
 
+"""
+    long_force!(F, long::PME3DLong, poses, charges; n_target = long.n_atoms)
+
+Particle-mesh counterpart of `Ewald3DLong`'s `long_force!`: identical semantics
+(accumulates into `F`, does not zero it; `n_target` targets, all `long.n_atoms`
+sources), computed via three type-2 NUFFTs — one per Cartesian component — of
+`k_d · D_k · ρ_src`, sharing a single plan, instead of a direct sum over `k_set`.
+"""
+function ExTinyMD.long_force!(F::Vector{SVector{3,T}}, long::PME3DLong{T}, poses,
+                              charges; n_target::Int = long.n_atoms) where {T}
+    n = long.n_atoms
+    _structure_factor!(long.ρ_src, long, poses, charges, n, long.plan1)
+
+    n_k = long.n_k
+    dims = size(long.D)
+
+    # Only masked-in grid points are written below, so these MUST be zeroed first.
+    # Leaving them uninitialised puts NaN on the grid, and the type-2 transform
+    # then spreads it to every particle.
+    fill!(long.hx, zero(Complex{T}))
+    fill!(long.hy, zero(Complex{T}))
+    fill!(long.hz, zero(Complex{T}))
+
+    @inbounds for i in 1:dims[1], j in 1:dims[2], m in 1:dims[3]
+        d = long.D[i, j, m]
+        iszero(d) && continue
+        k_x = (i - n_k[1] - 1) * 2π / long.L[1]
+        k_y = (j - n_k[2] - 1) * 2π / long.L[2]
+        k_z = (m - n_k[3] - 1) * 2π / long.L[3]
+        g = long.ρ_src[i, j, m] * d
+        long.hx[i, j, m] = k_x * g
+        long.hy[i, j, m] = k_y * g
+        long.hz[i, j, m] = k_z * g
+    end
+
+    _scale!(long, poses, n_target)
+    finufft_setpts!(long.plan2, view(long.xs, 1:n_target),
+                    view(long.ys, 1:n_target), view(long.zs, 1:n_target))
+
+    ox = view(long.ox, 1:n_target)
+    oy = view(long.oy, 1:n_target)
+    oz = view(long.oz, 1:n_target)
+    finufft_exec!(long.plan2, long.hx, ox)
+    finufft_exec!(long.plan2, long.hy, oy)
+    finufft_exec!(long.plan2, long.hz, oz)
+
+    V = long.L[1] * long.L[2] * long.L[3]
+    pref = one(T) / (V * long.ϵ)
+    @inbounds for i in 1:n_target
+        F[i] -= pref * charges[i] * SVector{3,T}(imag(ox[i]), imag(oy[i]), imag(oz[i]))
+    end
+
+    # Surface term, matching Ewald3DLong: F_i = -q_i P_src /(V ϵ (2ϵ_inf + 1))
+    P_src = _dipole(poses, charges, n, T)
+    surf = one(T) / (V * long.ϵ * (2 * long.ϵ_inf + one(T)))
+    @inbounds for i in 1:n_target
+        F[i] -= (surf * charges[i]) * P_src
+    end
+
+    return F
+end
+
 end # module
