@@ -17,6 +17,7 @@ end
     include("electrostatics/test_short.jl")
     include("electrostatics/test_long_ewald3d.jl")
     include("electrostatics/test_long_ewald2d.jl")
+    include("electrostatics/test_pme3d.jl")
     include("electrostatics/test_ewald.jl")
     include("electrostatics/test_icm.jl")
     include("electrostatics/test_adapter.jl")
