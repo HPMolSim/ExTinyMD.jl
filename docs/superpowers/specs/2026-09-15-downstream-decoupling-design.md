@@ -1,7 +1,7 @@
 # Phase 3: Decoupling the Downstream Electrostatics Packages — Design
 
 Date: 2026-09-15
-Status: draft, awaiting review
+Status: in progress — §5.1 ParticleMeshEwald complete and reviewed
 
 ## 1. Context
 
@@ -270,6 +270,67 @@ Phase 1 and 2 saw ten defective test specifications, every one a test that passe
 wrong reason rather than one that failed. The smoke test above is the one most at risk of
 being vacuous: it must genuinely run in a session where ExTinyMD was never loaded, not merely
 avoid mentioning it.
+
+## 6a. Lessons from ParticleMeshEwald, to be applied to the other four
+
+Phase 3a was deliberately sequenced first to find these cheaply. All were confirmed by its
+reviewer independently rather than taken on report.
+
+**1. Task 1 will fail to resolve before it fails to compile.** The plan predicted a
+`MethodError` from CellListMap's renamed keyword as the first failure after the compat bump.
+The actual first failure was an unsatisfiable `Pkg.test()` resolve: the *published* versions
+of ExTinyMD and EwaldSummations still pin CellListMap 0.9, so any package listing them as
+test dependencies cannot resolve once it moves to 0.10. None of the four remaining packages'
+published versions are on 0.10 either, so **each plan must schedule dropping or re-pinning
+stale registry test dependencies as part of the compat task**, not discover it mid-flight.
+
+**2. The wrapper pattern of §4.3a is validated, but PME did not exercise it.** PME has no
+forces, so its extension supplies `ExTinyMD.energy` only and never needed a wrapper at all.
+The four remaining packages do need one. Their adapter tests must therefore **drive
+`simulate!` with the wrapper placed in `sys.interactions`**, not merely call
+`ExTinyMD.energy` directly — that is the only thing that tests the wrapper under load, and
+it is what catches the id/slot, mass-division and accumulation faults that per-call tests
+cannot.
+
+**3. Baseline captures are contaminated by `SimulationInfo`.** It consumes `rand()`
+internally, so a before/after comparison script that constructs one shifts the RNG stream and
+the two sets of numbers are not comparable. Seed immediately before each measurement, or
+avoid `SimulationInfo` in the comparison entirely. PME's implementer caught its own
+contaminated capture and re-derived from unmodified source via `git stash`.
+
+**4. `@inbounds arr[0] += x` does not throw.** The `threadid() - 1` accumulator bug was worse
+than "would raise a `BoundsError`" — under `@inbounds` it is an undefined-behaviour write that
+produces a wrong energy silently. Worth knowing wherever this idiom appears in the remaining
+packages; grep for `threadid` in each.
+
+**5. Verify every "this test would fail" claim by making it fail.** PME's implementer
+hand-verified the standalone test by adding `using ExTinyMD` to its subprocess script, and the
+threading bug by observing the silent corruption. Across Phases 1–2, eleven specifications
+proved defective and every one was a test that passed for the wrong reason. This is the
+single discipline that has caught the most.
+
+## 6b. Release checklist — `[sources]` must be removed across all five together
+
+ExTinyMD 0.3 is **not in the General registry** (only 0.2.7 is), so each decoupled package
+needs a `[sources]` override pinning `ExTinyMD = {path = "../ExTinyMD.jl"}` to resolve during
+this phase.
+
+That is not merely inconvenient for outside users. **General's automerge rejects any package
+whose `Project.toml` carries a `[sources]` section**, so no package can be tagged or
+registered while the override is present. Five inline comments will not reliably be
+remembered, so it is recorded here as one coordinated item:
+
+- [ ] Register ExTinyMD 0.3 (and settle its version number — it has read `0.3.0` since before
+      Phase 1, with three phases of new exported API added under it)
+- [ ] Remove `[sources]` from ParticleMeshEwald
+- [ ] Remove `[sources]` from SoEwald2D
+- [ ] Remove `[sources]` from FastSpecSoG
+- [ ] Remove `[sources]` from EwaldSummations
+- [ ] Remove `[sources]` from QuasiEwald
+- [ ] Confirm each resolves from the registry with no local path
+
+Until that is done, all five are usable from sibling checkouts only. This is a deliberate,
+documented interim state, not an oversight — but it is the gate on any of them being released.
 
 ## 7. Sequencing
 
