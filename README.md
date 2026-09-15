@@ -15,60 +15,37 @@ pkg> add ExTinyMD
 ```
 to install the package.
 
-Here is an example, which simulate a 3D LJ fluid and plot its rdf:
+Here is a minimal simulation — a Lennard-Jones fluid, thermostatted, run for a
+few thousand steps:
+
 ```julia
-using ExTinyMD, Plots
+using ExTinyMD
 
-begin
-    # create the atoms and the box
-    n_atoms = 1000
-    n_atoms = Int64(round(n_atoms))
-    L = 100.0
-    boundary = CubicBoundary(L)
+n_atoms  = 1000
+L        = 100.0
+boundary = CubicBoundary(L)
+atoms    = create_atoms([(n_atoms, Atom(type = 1, mass = 1.0, charge = 0.0))])
 
-    atoms = create_atoms([(n_atoms, Atom(type = 1, mass = 1.0, charge = 0.0))])
+info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.0, L), boundary;
+                      min_r = 0.1, temp = 1.0)
 
-    # random init, position and velocity
-    info = SimulationInfo(n_atoms, atoms, (0.0, L, 0.0, L, 0.0, L), boundary; min_r = 0.1, temp = 1.0)
+sys = MDSys(
+    n_atoms      = n_atoms,
+    atoms        = atoms,
+    boundary     = boundary,
+    interactions = [(LennardJones(), CellList3D(info, 4.5, boundary, 100))],
+    loggers      = [TemperatureLogger(100)],
+    simulator    = VerletProcess(dt = 0.001,
+                                 thermostat = AndersenThermoStat(1.0, 0.05)),
+)
 
-    # set up the interaction needed, here only LJ, neighbors by cell_list
-    interactions = [(LennardJones(), CellList3D(info, 4.5, boundary, 100))]
-
-    # loggers, will store the data during simulations
-    loggers = [TemperatureLogger(100, output = false), TrajectoryLogger(step = 1000, output = false)]
-
-    # simulator and thermostat
-    simulator = VerletProcess(dt = 0.001, thermostat = AndersenThermoStat(1.0, 0.05))
-
-    # create MDSys
-    sys = MDSys(
-        n_atoms = n_atoms,
-        atoms = atoms,
-        boundary = boundary,
-        interactions = interactions,
-        loggers = loggers,
-        simulator = simulator
-    )
-
-    # run 1e6 steps
-    simulate!(simulator, sys, info, 1000000)
-
-    # sample 2e6 steps to get rdf
-    N = 20000
-    bin_num = 100
-
-    hist, volume, r, dr = hist_init(N, bin_num, 4.6)
-
-    for i in 1:N
-        simulate!(simulator, sys, info, 100)
-        distance_hist!(hist, sys.interactions[1][2].neighbor_list, dr)
-    end
-
-    rdf = hist ./ (N .* volume)
-    plot(r, 2 .* rdf, xlim = (0.0, 4.0), ylim = (0.0, 3.0))
-    savefig("rdf_LJ_fluid.png")
-end
+simulate!(sys.simulator, sys, info, 10_000)
 ```
+
+The [documentation](https://HPMolSim.github.io/ExTinyMD.jl/dev) carries the full
+version of this walkthrough, including how to accumulate a radial distribution
+function from the run, along with reference pages for the simulators,
+thermostats, loggers and neighbour finders.
 
 ## Electrostatics
 
@@ -106,4 +83,14 @@ function ExTinyMD.update_acceleration!(
     return nothing
 end
 ```
-and run them together. The package [QuasiEwald.jl](https://github.com/HPMolSim/QuasiEwald.jl) can be an example.
+and run them together — ExTinyMD will call it like any built-in interaction.
+The electrostatics library under `src/interactions/electrostatics/` is a worked
+example of the same contract, and the
+[Interactions](https://HPMolSim.github.io/ExTinyMD.jl/dev/interactions/) page
+documents it.
+
+(The companion packages [QuasiEwald.jl](https://github.com/HPMolSim/QuasiEwald.jl),
+[SoEwald2D.jl](https://github.com/HPMolSim/SoEwald2D.jl) and
+[FastSpecSoG.jl](https://github.com/HPMolSim/FastSpecSoG.jl) implement this
+interface too, but currently pin `ExTinyMD = "0.2"` and do not yet resolve
+against the current release.)

@@ -1,3 +1,7 @@
+# GR needs a headless workstation type in CI, and the electrostatics page renders
+# figures from @example blocks at build time.
+ENV["GKSwstype"] = "100"
+
 using Documenter, ExTinyMD
 
 DocMeta.setdocmeta!(ExTinyMD, :DocTestSetup, :(using ExTinyMD, StaticArrays);
