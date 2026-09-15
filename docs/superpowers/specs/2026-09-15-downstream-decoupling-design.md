@@ -108,6 +108,52 @@ calls the core and, for forces, divides by mass and accumulates. Phase 1's
 `src/interactions/electrostatics/adapter.jl` is the reference implementation; the gather
 pattern and its `_finder_list` fallback for `NoNeighborFinder` transfer directly.
 
+### 4.3a The interaction type must live in the extension, not `src/`
+
+**Discovered while decoupling ParticleMeshEwald, and it governs the remaining four packages.**
+
+`MDSys` requires its interactions to subtype `ExTinyMD.AbstractInteraction`. A supertype is
+fixed at struct definition and **no extension can retrofit one**. So a type defined in `src/`,
+where ExTinyMD does not exist, can never be placed in `sys.interactions` — it is not a matter
+of writing the adapter differently.
+
+ParticleMeshEwald absorbed this without loss: it has no forces, so it could never drive
+`simulate!` regardless, and its extension supplies `ExTinyMD.energy` alone. QuasiEwald,
+SoEwald2D and FastSpecSoG all currently *do* put their interactions in `sys.interactions`, so
+for them the naive reading of this design would trade away MD integration entirely — which is
+half of what the user asked for.
+
+The resolution follows the two-layer contract already in force, taken one step further:
+
+- **`src/` defines the plan** — parameters plus scratch, no ExTinyMD, constructed and queried
+  from plain arrays. This is what a standalone user touches.
+- **`ext/` defines a thin interaction wrapper** subtyping `ExTinyMD.AbstractInteraction` and
+  holding a plan, plus the `ExTinyMD.energy` / `ExTinyMD.update_acceleration!` methods on it.
+  This is what goes in `sys.interactions`.
+
+```julia
+# src/  — no ExTinyMD anywhere
+struct QuasiEwaldPlan{T, ...}
+    ...
+end
+QuasiEwald.energy(plan, poses, charges)
+
+# ext/QuasiEwaldExTinyMDExt.jl
+struct QuasiEwaldInteraction{P} <: ExTinyMD.AbstractInteraction
+    plan::P
+end
+ExTinyMD.energy(i::QuasiEwaldInteraction, finder, sys, info) = ...
+ExTinyMD.update_acceleration!(i::QuasiEwaldInteraction, finder, sys, info) = ...
+```
+
+The wrapper is a few lines and carries no physics. Standalone users never see it; MD users
+construct it from a plan. Both requirements are met without ExTinyMD becoming a hard
+dependency.
+
+A consequence worth stating: the interaction *type name* changes for these packages, since the
+old name is the plan now. That is a breaking change, appropriate at 0.x, and the migration is
+one line at each construction site.
+
 ### 4.4 `Project.toml` shape
 
 ```toml
@@ -151,6 +197,24 @@ is element 0 when `threadid()` is 1.
 
 **This package is now largely superseded by ExTinyMD's `PME3D`** — see §8. This phase makes it
 work as asked and does not act on that.
+
+**Outcome, as completed.** CellListMap bumped to 0.10 (the co-resolution blocker), AoS query
+API with no caller mutation, `energy`/`energy_short`/`energy_long` un-exported, the
+`threadid()-1` accumulator and the whole KernelAbstractions kernel removed (no GPU backend was
+ever used anywhere in the repository, and the kernel was the bug's only source), the
+`examples/utils.jl` include removed after confirming by grep that what it defined was
+referenced nowhere, and an `ext/` supplying `ExTinyMD.energy` only. Baseline energies
+unchanged across eight configurations. 16 tests, up from 9.
+
+Two things it exposed that the plan did not anticipate. First, capturing baseline energies is
+harder than it looks: ExTinyMD's `SimulationInfo` consumes `rand()` internally, so a
+comparison script that constructs one shifts the RNG stream and the "before" numbers are not
+comparable to the "after" ones. The implementer caught this itself and re-derived the baseline
+from unmodified source via `git stash`. Any per-package before/after check in this phase must
+either avoid `SimulationInfo` or seed immediately before each measurement. Second, the first
+failure after the compat bump was not the expected `MethodError` but an unsatisfiable
+`Pkg.test()` resolve, because the registered EwaldSummations and ExTinyMD both still pin
+CellListMap 0.9 — so part of the `[weakdeps]` cleanup had to be pulled forward.
 
 ### 5.2 SoEwald2D — lightest of the four coupled packages
 
