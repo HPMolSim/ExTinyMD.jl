@@ -99,19 +99,126 @@ PeriodicQ2D
 | Boundary condition | Dielectric walls | Method | Cost | Notes |
 |---|---|---|---|---|
 | Triply periodic | none | [`Ewald3D`](@ref) | `O(N·K)` | reference implementation |
+| Triply periodic | none | [`PME3D`](@ref) | `O(N log N)` | needs `using FINUFFT`; same sum as `Ewald3D` |
 | Slab, periodic in x,y | none | [`Ewald2D`](@ref) | `O(N²K)` | exact; accuracy reference only |
 | Slab, periodic in x,y | confined | [`ICMEwald2D`](@ref) | `O(N²K)` | exact for confined slabs |
 | Slab, periodic in x,y | confined | [`ICMEwald3D`](@ref) | `O(N·K)` | Ewald3D + ELC; faster, approximate in `N_pad` |
+| Slab, periodic in x,y | confined | [`ICMPME3D`](@ref) | `O(N log N)` | needs `using FINUFFT`; PME3D + ELC |
 
 `N` is the particle count and `K` the number of reciprocal-space vectors kept
-below the cutoff `k_c`. A particle-mesh method, `PME3D`, using FINUFFT for
-`O(N log N)` scaling on large triply-periodic systems, is planned for a later
-phase and is **not yet implemented** — do not look for it in this version.
+below the cutoff `k_c`. [`PME3D`](@ref) and [`ICMPME3D`](@ref) trade that `K`
+dependence for an FFT-driven `O(N log N)` cost — see [Particle mesh](@ref)
+below for what that trade actually buys, and costs, in practice.
 
 Use [`Ewald2D`](@ref) only as an accuracy reference for small systems: its
 `O(N²K)` direct double sum over all particle pairs makes it unsuitable for
 production work. For large quasi-2D systems without dielectric walls, reach
 for `QuasiEwald.jl` or `SoEwald2D.jl` instead.
+
+## Particle mesh
+
+[`PME3D`](@ref) and [`ICMPME3D`](@ref) live in a package extension so that
+FINUFFT — a binary artifact — never lands on users who only want the direct
+Ewald methods above. Load it explicitly:
+
+```julia
+using ExTinyMD, FINUFFT
+```
+
+Without that `using FINUFFT`, `ExTinyMD` still defines `PME3D` and
+`ICMPME3D` (so `isdefined` sees them and dispatch to the wrong method is not
+possible), but calling either raises immediately:
+
+```
+ERROR: PME3D requires FINUFFT. Run `using FINUFFT` (and add it to your project)
+to load ExTinyMD's particle-mesh extension.
+```
+
+(`ICMPME3D` raises the same sentence with its own name substituted.)
+
+### The most important fact: it is the same sum, not an approximation
+
+[`PME3D`](@ref) does not compute an approximation to [`Ewald3D`](@ref)'s
+reciprocal-space sum that happens to converge to the same answer — it
+computes the **identical** sum. FINUFFT's type-1 transform naturally returns
+values on a rectangular k-grid, but [`PME3DLong`](@ref) zeroes the Green's
+function `D_k` everywhere outside the spherical shell `0 < |k| ≤ k_c`, which
+is exactly the k-set `Ewald3DLong` sums over directly. The two solvers are
+therefore summing over the same finite set of k-vectors with the same
+per-vector weight; any difference between them is floating-point roundoff,
+not truncation. Measured on this implementation:
+
+| comparison | result |
+|---|---|
+| `PME3DLong` vs `Ewald3DLong`, long-range energy | `4.2e-16` relative, with identical k-sets (7688 vectors, one test configuration) |
+| `PME3D` vs `Ewald3D`, total energy | `2.0e-15` relative |
+| `PME3D` vs `Ewald3D`, force | `5.6e-16` absolute |
+| `ICMPME3D` vs `ICMEwald3D`, energy | `4.0e-14` relative |
+
+The practical consequence: choosing between `Ewald3D` and `PME3D` (or between
+`ICMEwald3D` and `ICMPME3D`) is a question of **cost**, not accuracy. `K`
+grows with the system, so `Ewald3D`'s `O(N·K)` cost grows faster than
+`PME3D`'s `O(N log N)` as `N` increases; where exactly that starts to matter
+depends on your machine, your FFT size, and how tight `s` needs to be, so
+measure it on your own system rather than trusting a quoted crossover.
+`Ewald3D` remains useful even once `PME3D` is faster: it is a good
+correctness reference to check a new `PME3D` parameter choice against, and it
+has no FFT grid to size.
+
+### Parameters mean what they mean for `Ewald3D`
+
+`PME3D` takes the same `α` and `s` as `Ewald3D`, with the same meaning (see
+[Parameter selection](@ref) below) and the same constraint:
+
+```
+r_c = s / α  <  min(L) / 2
+```
+
+Nothing about the particle-mesh grid changes this — it is still `CellListMap`
+building the real-space neighbour list for `EwaldShort`, so the same
+`ArgumentError: UNIT CELL CHECK FAILED` fires if it is violated.
+
+```julia
+using ExTinyMD, FINUFFT, StaticArrays, Random
+
+n, L = 30, (12.0, 12.0, 12.0)
+poses   = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+inter = PME3D(n, L; α = 0.8, s = 3.5)   # r_c = 4.375 < min(L)/2 = 6.0
+E = coulomb_energy(inter, poses, charges)
+F = coulomb_force(inter, poses, charges)
+```
+
+### `ICMPME3D`: `N_image` and `N_pad` behave as they do for `ICMEwald3D`
+
+[`ICMPME3D`](@ref) is [`ICMEwald3D`](@ref) with [`PME3DLong`](@ref) swapped in
+for [`Ewald3DLong`](@ref) underneath the same image-charge reflection and ELC
+padding, so [`N_image` and `N_pad`](@ref "ICM guidance") carry over unchanged:
+`N_image` controls how many reflections the image series keeps, and `N_pad`
+controls how much the z-period is inflated before ELC treats the slab as
+ordinary triply-periodic Ewald. Underpadding is still the dominant failure
+mode, not an artifact of the particle-mesh solver — at `N_image = 3`, going
+from `N_pad = 1` to `N_pad = 2` takes the disagreement against the exact
+[`ICMEwald2D`](@ref) route from `9.4e-3` down to `4.7e-8`.
+
+```julia
+using ExTinyMD, FINUFFT, StaticArrays, Random
+
+n, L = 8, (5.0, 5.0, 10.0)
+poses   = [SVector(rand() * L[1], rand() * L[2], 2.0 + 6.0 * rand()) for _ in 1:n]
+charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+# r_c = s/α = 2.353 < min(L[1], L[2])/2 = 2.5
+inter = ICMPME3D(n, L; α = 1.7, s = 4.0, γ = (0.3, 0.3), N_image = 3, N_pad = 2)
+E = coulomb_energy(inter, poses, charges)
+```
+
+```@docs
+PME3DLong
+PME3D
+ICMPME3D
+```
 
 ## Parameter selection
 

@@ -52,14 +52,20 @@ thermostats, loggers and neighbour finders.
 ExTinyMD also includes a small electrostatics standard library: Ewald
 summation and the image-charge method for dielectrically confined slabs,
 usable either standalone (a plan object plus plain arrays) or as an ordinary
-`MDSys` interaction. Four methods are available:
+`MDSys` interaction. Six methods are available:
 
 - `Ewald3D` — triply periodic Ewald summation.
+- `PME3D` — particle-mesh Ewald for the same triply periodic system, computing
+  the identical sum as `Ewald3D` in `O(N log N)` instead of `O(N·K)`. Requires
+  `using FINUFFT` (a weak dependency, loaded via a package extension).
 - `Ewald2D` — exact Ewald summation for a slab periodic in x, y and free in z.
 - `ICMEwald2D` — `Ewald2D` plus the image-charge method, for a slab confined
   between two dielectric walls.
 - `ICMEwald3D` — the image-charge method combined with `Ewald3D` and an
   electrostatic layer correction, for the same confined slab at lower cost.
+- `ICMPME3D` — the image-charge method combined with `PME3D` and the same
+  layer correction, the `O(N log N)` counterpart of `ICMEwald3D`. Also
+  requires `using FINUFFT`.
 
 See the [Electrostatics](https://HPMolSim.github.io/ExTinyMD.jl/dev/electrostatics/)
 page of the documentation for a full guide, including how to choose `α`/`s`
