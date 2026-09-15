@@ -16,6 +16,7 @@ export EwaldShort, short_energy, short_force!
 export Ewald3DLong, long_energy, long_force!
 export Ewald2DLong, Ewald2D
 export EwaldInteraction, coulomb_energy, coulomb_force, coulomb_force!, Ewald3D
+export PME3DLong, PME3D, ICMPME3D
 export ICM, ICMShort, ICMEwald2D, ICMEwald3D
 export gather_charges!, gather_positions!
 
@@ -53,6 +54,7 @@ include("interactions/electrostatics/common.jl")
 include("interactions/electrostatics/short.jl")
 include("interactions/electrostatics/long_ewald3d.jl")
 include("interactions/electrostatics/long_ewald2d.jl")
+include("interactions/electrostatics/long_pme3d.jl")
 include("interactions/electrostatics/icm.jl")
 include("interactions/electrostatics/ewald.jl")
 include("interactions/electrostatics/adapter.jl")
