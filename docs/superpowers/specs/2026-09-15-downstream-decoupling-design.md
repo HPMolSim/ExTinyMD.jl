@@ -549,6 +549,40 @@ z-force at `ρ = 0` is finite and the sentinel was discarding it.
 and a test for it.** In this phase that substitution happened three times and was a latent NaN
 every time.
 
+## 6e. Known gap, not addressed: energy-only packages cannot be energy-logged
+
+**Applies to ParticleMeshEwald and FastSpecSoG — the two packages with no force code.**
+Pre-existing, not introduced by this phase, and deliberately left out of scope. Recorded with
+the fix so it is not rediscovered.
+
+Both packages' extensions supply `ExTinyMD.energy` on the plan type directly, which is enough
+to call by hand but nothing more. They cannot enter ExTinyMD's MD machinery at all:
+
+- `MDSys` requires `interactions::Vector{<:Tuple{AbstractInteraction, AbstractNeighborFinder}}`;
+- `EnergyLogger`'s constructor requires `T_interaction <: AbstractInteraction` and its field is
+  typed `Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}}`.
+
+So a plain plan type is refused by both. §4.3a explains why this is structural.
+
+**But the two refusals are not equally deserved.** `EnergyLogger.record!` calls only
+`energy(interaction, neighborfinder, sys, info)` — never `update_acceleration!` — and
+`logger.interactions` is a **separate list** from `sys.interactions`. So an energy-only package
+placed in the logger's list alone is never asked for a force, and logging it is perfectly
+well-defined. The use case is real: run MD under one force field and log a second method's
+energy along the trajectory for comparison, which is exactly what these two packages are for.
+
+The fix is small — a wrapper in `ext/` subtyping `AbstractInteraction`, holding the plan, with
+the existing `ExTinyMD.energy` method moved onto it, plus a §4.3a-bis dispatcher function if the
+name should be reachable without `Base.get_extension`. It must be documented as **logger-only**:
+putting it in `sys.interactions` would make `simulate!` call `update_acceleration!` and fail,
+so the wrapper should either carry that warning prominently or define an
+`update_acceleration!` that raises an informative error rather than a `MethodError`.
+
+Out of scope here because it is new capability rather than preserved capability: neither package
+could be logged before this phase either (FastSpecSoG's `ExTinyMD.energy` was declared with a
+signature the MD loop never calls, so it was dead, and ParticleMeshEwald never had forces). The
+decoupling regressed nothing. This is the next increment, and it is one small PR per package.
+
 ## 7. Sequencing
 
 **Order: QuasiEwald → SoEwald2D → FastSpecSoG.** ParticleMeshEwald is done; EwaldSummations
