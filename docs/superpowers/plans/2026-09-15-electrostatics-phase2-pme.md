@@ -789,4 +789,15 @@ The docs environment will need FINUFFT for any `@docs` block referencing the ext
 
 **Type consistency.** `PME3DLong` is constructed in the extension and its struct declared in the parent with free plan parameters. `long_energy`/`long_force!` are methods on ExTinyMD's existing generics, matching `Ewald3DLong`'s signatures including `n_target`. `PME3D` returns an `EwaldInteraction` and `ICMPME3D` returns an `ICM`, so both reuse the Phase 1 `coulomb_*` methods and the adapter unchanged.
 
-**Known open question for Task 1.** The `plan1_npts` / `plan2_npts` Refs may turn out to be write-only, since positions move every step and `setpts!` must be called regardless. The task tells the implementer to delete them and report rather than leave dead fields — Phase 1's final review flagged four write-only struct fields and I would rather not add two more.
+**Resolved during Task 1.** The `plan1_npts` / `plan2_npts` Refs this plan originally carried
+were deleted as write-only: `setpts!` must be called every timestep regardless of point count.
+A later measurement showed skipping it would in fact have been harmless — FINUFFT.jl's guru
+binding keeps a live reference to the position buffers rather than snapshotting them at
+`setpts!` time, so `exec` re-reads whatever is in them. Calling it unconditionally avoids
+depending on that undocumented detail, which is the reason to prefer it.
+
+**On measuring force agreement.** Two error metrics are in play and they differ by three
+orders of magnitude on the same data. Per *particle* — dividing by that particle's largest
+component — gives ~6e-15. Per *component* — dividing by each component individually, some of
+which are as small as 2.5e-5 against a largest of 0.034 — gives ~1e-12. The absolute error is
+1.25e-16 either way. Quote which metric you mean; a number without it invites a false alarm.
