@@ -259,3 +259,36 @@ end
     G2 = coulomb_energy(ICMPME3D(n, Ls; kw..., ϵ = 2.0), ps, charges)
     @test isapprox(G2, G1 / 2, rtol = 1e-12)
 end
+
+@testset "PME3DLong destroys its FINUFFT plans (does not leak them)" begin
+    # FIX 1 regression (Major). `finufft_makeplan`'s C-side plan (FFTW plan,
+    # sorted-point arrays, spreader workspace) gets no finalizer from FINUFFT.jl;
+    # the only release path is `finufft_destroy!`, called here by a `finalizer`
+    # attached to each plan in the constructor.
+    #
+    # An RSS-based version of this test was tried first (build ~25 PME3DLong
+    # instances per batch at the ICMPME3D test's own grid — 56 sources,
+    # 23×23×219 after masking — letting each go out of scope, `GC.gc(true)`,
+    # compare batch-over-batch process RSS growth from /proc/self/statm). It
+    # worked and clearly separated the two regimes when run standalone (with
+    # the finalizer: -8, +14 MiB batch-over-batch across repeats; with it
+    # removed: +37, +44 MiB) — but it flaked once (false failure) across
+    # repeated runs of the full suite, where other tests' allocator activity
+    # shares the same process. Per the brief, a leak test that fails
+    # intermittently on CI is worse than none, so it was replaced with this
+    # deterministic check instead: `Base.finalize` runs an object's registered
+    # finalizers immediately, without needing it to be otherwise unreachable,
+    # so it exercises exactly "is `finufft_destroy!` registered as a finalizer
+    # on this plan" with no GC timing or OS memory-accounting involved. Verified
+    # to fail (plan_ptr stays non-null) when the `finalizer(...)` calls in the
+    # constructor are temporarily deleted.
+    long = PME3DLong(10, (12.0, 12.0, 12.0); α = 0.8, s = 3.5)
+    @test long.plan1.plan_ptr != C_NULL
+    @test long.plan2.plan_ptr != C_NULL
+
+    finalize(long.plan1)
+    finalize(long.plan2)
+
+    @test long.plan1.plan_ptr == C_NULL
+    @test long.plan2.plan_ptr == C_NULL
+end

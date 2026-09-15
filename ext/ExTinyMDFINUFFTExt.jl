@@ -35,6 +35,17 @@ function ExTinyMD.PME3DLong(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = o
 
     plan1 = finufft_makeplan(1, [dims...], +1, 1, NUFFT_TOL, dtype = T)
     plan2 = finufft_makeplan(2, [dims...], -1, 1, NUFFT_TOL, dtype = T)
+    # FINUFFT.jl attaches no finalizer, and the only release path for the C-side
+    # plan (FFTW plan, sorted points, spreader workspace) is an explicit
+    # finufft_destroy!. Without this every PME3DLong leaks about 2 MiB that
+    # GC.gc(true) does not reclaim.
+    #
+    # finufft_destroy! is safe to call twice: it nulls plan.plan_ptr after
+    # destroying and checks it first, returning a "already destroyed" status
+    # instead of touching the C side again — verified against FINUFFT.jl's
+    # guru.jl source. No guard is needed here.
+    finalizer(finufft_destroy!, plan1)
+    finalizer(finufft_destroy!, plan2)
 
     return PME3DLong{T, typeof(plan1), typeof(plan2)}(
         α, r_c, k_c, ϵ, ϵ_inf, L, n_atoms, n_k,
