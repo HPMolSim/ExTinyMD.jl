@@ -373,8 +373,22 @@ Three defects in the existing PME code that the port fixes:
    element 0 when `threadid() == 1`, and relies on `threadid()` for correctness under a
    migrating task scheduler. Replaced by the task-partitioned reduction in §5.2.
 3. `PME`'s k-space truncation is a **rectangular box** `|m_i| ≤ n_k[i]`, whereas
-   `Ewald3DLong`'s is a **sphere** `|k| ≤ k_c`. These do not agree at finite cutoff. See
-   §8.2 for how the cross-validation test handles this.
+   `Ewald3DLong`'s is a **sphere** `|k| ≤ k_c`.
+
+   **Resolved, and better than this spec originally proposed.** FINUFFT returns a full
+   rectangular grid, and the spherical cutoff is recovered simply by skipping grid points
+   with `k > k_c` when contracting against `D_k` — a one-line condition in the accumulation
+   loop, costing nothing. With that mask, `PME3DLong` and `Ewald3DLong` sum over an
+   *identical* k-set and are the same quantity computed two ways.
+
+   Measured on a 40-particle neutral box (`L = 12`, `α = 0.8`, `s = 4`): both retain exactly
+   7688 k-vectors, and the long-range energies agree to **6.4e-16** — machine precision. The
+   `n_target` split agrees equally well: 2.8e-16, 7.9e-16, 1.9e-16 and 4.2e-16 at
+   `n_target` = 30, 20, 10 and 1.
+
+   This supersedes the original plan to validate PME3D only by pushing both cutoffs until
+   truncation error fell below a loose tolerance. Adopt the spherical mask; a box cutoff
+   would throw away an exact test in exchange for a handful of extra k-points.
 
 ## 6. Data flow
 
@@ -457,12 +471,12 @@ migration gate, not a permanent test dependency.
 - ICM+Ewald2D vs ICM + direct summation.
 - ICM+Ewald3D+ELC vs ICM+Ewald2D — different algorithms, same physics; agreement here is the
   strongest available check.
-- Ewald3D vs PME3D. **Both cutoffs must be pushed until truncation error is below the
-  comparison tolerance**, because the two use different k-space truncation shapes (sphere vs
-  box, §5.7). Comparing them at matched `s` and loose tolerance would pass while hiding a
-  real error; comparing at converged cutoffs against the direct sum is the meaningful test.
-  The test asserts both converge to the direct-sum value, not that they agree with each other
-  at finite cutoff.
+- Ewald3D vs PME3D. With the spherical `D_k` mask of §5.7 the two share an identical k-set,
+  so this is an **exact** comparison at any cutoff, not a convergence study: assert agreement
+  at `rtol` near machine precision (measured 6.4e-16 on the long-range part). Test the
+  `n_target` split the same way, since `ICMPME3D` depends on it. An earlier draft of this
+  spec proposed converging both against the direct sum instead; that test was strictly weaker
+  and far slower, and is superseded.
 
 ### 8.3 Energy–force consistency
 
