@@ -325,3 +325,150 @@ Use these to pick `M` (`N_image`) and the padding depth analytically rather
 than by trial and error; the empirical [ICM guidance](@ref) above is a
 starting point, not a substitute, for a system whose accuracy requirement is
 known in advance.
+
+## Worked examples
+
+Every figure below is generated when this page is built, so the numbers are
+whatever the current code actually produces.
+
+### A charged system under MD
+
+A molten-salt-like box of equal numbers of `+1` and `-1` ions, with
+Lennard-Jones repulsion and `Ewald3D` electrostatics, integrated with velocity
+Verlet. Both interactions share one neighbour finder, whose cutoff must cover
+the larger of the two.
+
+```@example electrostatics
+using ExTinyMD, StaticArrays, Random, Plots
+Random.seed!(20260915)
+
+n, L = 60, 14.0
+boundary = Boundary((L, L, L), (1, 1, 1))
+
+atoms = Atom{Float64}[]
+for _ in 1:(n ÷ 2);       push!(atoms, Atom(type = 1, mass = 1.0, charge =  1.0)); end
+for _ in (n ÷ 2 + 1):n;   push!(atoms, Atom(type = 2, mass = 1.0, charge = -1.0)); end
+
+info = SimulationInfo(n, atoms, (0.0, L, 0.0, L, 0.0, L), boundary;
+                      min_r = 1.0, temp = 1.0)
+info.running_step = 1
+
+coulomb = Ewald3D(n, (L, L, L); α = 0.8, s = 3.5)   # r_c = 4.375 < L/2 = 7
+lj      = LennardJones(ϵ = 1.0, σ = 1.0, cutoff = 3.0)
+finder  = CellList3D(info, max(coulomb.short.r_c, 3.0), boundary, 1)
+
+sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
+            interactions = [(lj, finder), (coulomb, finder)],
+            loggers = [TemperatureLogger(1000; output = false)],
+            simulator = VerletProcess(dt = 1e-4))
+
+steps, E_coulomb = Int[], Float64[]
+for block in 0:20
+    block > 0 && simulate!(sys.simulator, sys, info, 25)
+    push!(steps, block * 25)
+    push!(E_coulomb, energy(coulomb, finder, sys, info))
+end
+
+plot(steps, E_coulomb; lw = 2, marker = :circle, markersize = 3, legend = false,
+     xlabel = "step", ylabel = "electrostatic energy",
+     title = "Ewald3D energy during an MD run")
+```
+
+This is the *electrostatic component* alone, so it is expected to vary as the
+ions move — it is not a conserved quantity on its own. What it should not do is
+jump discontinuously or diverge; if it does, the neighbour-finder cutoff is
+probably smaller than `r_c`.
+
+The same system without ever building an `MDSys`:
+
+```@example electrostatics
+poses   = [SVector(p.position[1], p.position[2], p.position[3])
+           for p in info.particle_info]
+charges = [atoms[p.id].charge for p in info.particle_info]
+
+coulomb_energy(coulomb, poses, charges)
+```
+
+### The Ewald split is arbitrary — the total is not
+
+`α` decides how much work goes to real space and how much to reciprocal space.
+Move it and the two parts trade off dramatically, while their sum does not
+move at all. This is the single most useful check on a parameter choice.
+
+```@example electrostatics
+Random.seed!(1)
+n, L, s = 40, (12.0, 12.0, 12.0), 4.0
+poses   = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+αs = 0.70:0.05:1.20        # r_c = s/α runs 5.71 down to 3.33, all < L/2 = 6
+short_part = [short_energy(EwaldShort(n, L; α = α, s = s), poses, charges) for α in αs]
+long_part  = [long_energy(Ewald3DLong(n, L; α = α, s = s), poses, charges) for α in αs]
+total      = short_part .+ long_part
+
+plot(αs, [short_part long_part total]; lw = 2,
+     label = ["real space" "reciprocal space" "total"], legend = :right,
+     xlabel = "α", ylabel = "energy", title = "The split moves; the total does not")
+```
+
+Each part swings by roughly a factor of two across this range. The total varies
+by:
+
+```@example electrostatics
+(maximum(total) - minimum(total)) / abs(total[1])
+```
+
+If your own system does not behave this way, `α`, `s` and the box are
+inconsistent — check `r_c < min(L)/2` first.
+
+### Choosing `s`
+
+`s` sets accuracy, with error falling roughly like `exp(-s²)`. Measured against
+a converged `s = 7` reference:
+
+```@example electrostatics
+Random.seed!(2)
+n, L, α = 40, (12.0, 12.0, 12.0), 1.3
+poses   = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+total_at(s) = short_energy(EwaldShort(n, L; α = α, s = s), poses, charges) +
+              long_energy(Ewald3DLong(n, L; α = α, s = s), poses, charges)
+
+reference = total_at(7.0)
+svals = 2.0:0.5:5.5
+err = [abs(total_at(s) - reference) / abs(reference) for s in svals]
+
+plot(svals, err; lw = 2, marker = :circle, yscale = :log10, legend = false,
+     xlabel = "s", ylabel = "relative error", title = "Accuracy versus s")
+```
+
+Thirteen orders of magnitude across a narrow range of `s`, which is why `s`
+between 3 and 5 covers most practical accuracy targets. Remember that raising
+`s` at fixed `α` raises `r_c`, so it can walk you into the box-size limit.
+
+### How deep the image series needs to go
+
+For a dielectrically confined slab, `N_image` controls how many reflections are
+kept. The series is geometric, and a stronger contrast `γ` needs more of it.
+
+```@example electrostatics
+Random.seed!(20260927)
+n, L = 6, (5.0, 5.0, 4.0)
+poses   = [SVector(rand() * L[1], rand() * L[2], 0.8 + 2.4 * rand()) for _ in 1:n]
+charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+p = plot(; yscale = :log10, xlabel = "N_image", ylabel = "|E(m+1) − E(m)|",
+         title = "Convergence of the image series", legend = :topright)
+for γv in (0.5, 0.7, 0.9)
+    Es = [coulomb_energy(ICMEwald2D(n, L; α = 1.7, s = 4.0,
+                                    γ = (γv, γv), N_image = m), poses, charges)
+          for m in 1:7]
+    plot!(p, 1:6, abs.(diff(Es)); lw = 2, marker = :circle, label = "γ = $γv")
+end
+p
+```
+
+Each extra reflection buys two to three orders of magnitude here, and the
+curves flatten once they reach floating-point noise — past that point a larger
+`N_image` costs time and buys nothing.
