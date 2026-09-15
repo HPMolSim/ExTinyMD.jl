@@ -38,11 +38,16 @@ end
     end
 end
 
-@testset "PME3DLong k-space buffers are zeroed, not merely allocated" begin
-    # Only masked-in grid points are written each call, so a buffer left
-    # uninitialised (or dirty from a previous call with different positions)
-    # leaks into the transform. Calling twice with different configurations must
-    # not let the first contaminate the second.
+@testset "PME3DLong buffers survive interleaved calls" begin
+    # Only masked-in grid points are written in some loops, and the plan reuses its
+    # buffers across calls, so a stale buffer — or a skipped finufft_setpts! — would
+    # contaminate a later result.
+    #
+    # The dirtying call must differ in point COUNT as well as in positions. An
+    # earlier version of this test used the same n_target throughout, which meant a
+    # reintroduced "skip setpts! when the count is unchanged" optimisation would
+    # still pass: both B evaluations would land on the same original setpts state
+    # and agree with each other while being wrong.
     Random.seed!(31337)
     n = 20
     L = (12.0, 12.0, 12.0)
@@ -51,11 +56,17 @@ end
     A = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
     B = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
 
-    pme = PME3DLong(n, L; α = α, s = s)
-    E_B_first = long_energy(pme, B, charges)      # fresh plan
-    long_energy(pme, A, charges)                  # dirty it
-    E_B_after = long_energy(pme, B, charges)      # must be unchanged
+    pme   = PME3DLong(n, L; α = α, s = s)
+    ewald = Ewald3DLong(n, L; α = α, s = s)
+
+    E_B_first = long_energy(pme, B, charges)
+    long_energy(pme, A, charges; n_target = 7)   # different positions AND count
+    E_B_after = long_energy(pme, B, charges)
+
     @test isapprox(E_B_first, E_B_after, rtol = 1e-14)
+    # and it must still be the RIGHT answer, not merely self-consistent — two
+    # equally-contaminated results would satisfy the assertion above
+    @test isapprox(E_B_after, long_energy(ewald, B, charges), rtol = 1e-12)
     @test isfinite(E_B_after)
 end
 

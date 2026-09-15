@@ -2,7 +2,7 @@ module ExTinyMDFINUFFTExt
 
 using ExTinyMD
 using ExTinyMD: PME3DLong, EwaldShort, Periodic3D, ewald_cutoffs, EwaldInteraction,
-                ICM, ICMShort, long_energy, long_force!
+                ICM, ICMShort, long_energy, long_force!, _dipole
 using FINUFFT
 using StaticArrays
 using LinearAlgebra: dot
@@ -74,10 +74,6 @@ function _structure_factor!(out, long::PME3DLong{T}, poses, charges, m::Int,
     finufft_exec!(plan, q, out)
     return out
 end
-
-_dipole(poses, charges, m::Int, ::Type{T}) where {T} =
-    sum(k -> charges[k] * SVector{3,T}(T(poses[k][1]), T(poses[k][2]), T(poses[k][3])),
-        1:m; init = zero(SVector{3,T}))
 
 """
     long_energy(long::PME3DLong, poses, charges; n_target = long.n_atoms) -> T
