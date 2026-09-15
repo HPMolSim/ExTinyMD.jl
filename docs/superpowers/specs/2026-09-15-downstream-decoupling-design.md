@@ -154,6 +154,63 @@ A consequence worth stating: the interaction *type name* changes for these packa
 old name is the plan now. That is a breaking change, appropriate at 0.x, and the migration is
 one line at each construction site.
 
+#### 4.3a-bis Preserving the old name: the dispatcher-function pattern
+
+**Discovered while decoupling QuasiEwald, which is the first package to actually need a wrapper
+*type* rather than just a method.** It supersedes the closing paragraph above: the interaction
+type name does *not* have to change, though preserving it costs something.
+
+§4.3a is right that a supertype is fixed at struct definition. What it does not say is the
+stronger constraint underneath: **a struct definition cannot be dot-qualified at all.**
+`struct QuasiEwald.Foo <: ExTinyMD.AbstractInteraction ... end` is not legal Julia, so an
+extension cannot define a type *into* its parent package's namespace the way it defines a
+method into a parent's generic function. The wrapper type genuinely lives in the extension
+module's own namespace.
+
+To keep `using QuasiEwald, ExTinyMD; QuasiEwaldShortInteraction(...)` working unchanged, `src/`
+declares the name as a plain **dispatcher function** that forwards through
+`Base.get_extension`:
+
+```julia
+# src/ — no ExTinyMD, and no type of this name either
+for name in (:QuasiEwaldShortInteraction, :QuasiEwaldLongInteraction, :SortingFinder)
+    @eval function $name(args...; kwargs...)
+        ext = Base.get_extension(QuasiEwald, :QuasiEwaldExTinyMDExt)
+        ext === nothing && error($(string(name)) * " requires ExTinyMD to be loaded")
+        return getfield(ext, $(QuoteNode(name)))(args...; kwargs...)
+    end
+end
+```
+
+**The cost, and it must be checked per package before choosing this:** the preserved name is a
+*function*, not a type. Every construction site keeps working; every **type-position** use
+breaks — `::QuasiEwaldShortInteraction`, `Vector{QuasiEwaldShortInteraction}`,
+`isa QuasiEwaldShortInteraction`, and any method dispatching on it. Before adopting the pattern
+for a package, grep the package *and its dependents* for type-position uses of the name. For
+QuasiEwald this was zero (construction only, 20 sites), so the pattern was free and the
+migration was one convenience constructor instead of edits to five test files and two examples.
+If a package has type-position uses, rename instead, per §4.3a's original advice, and let the
+plan take the old name.
+
+A second, unrelated Julia constraint surfaced at the same time: a package cannot define a bare
+`function energy(...)` (per §4.2) while its module still does a blanket `using ExTinyMD`, since
+ExTinyMD exports `energy` and Julia refuses to shadow a `using`-imported binding with a new
+local definition — even for a disjoint signature. **Switch to `import ExTinyMD` plus a narrow
+`using ExTinyMD: <the names actually used unqualified>`.** This bites during the transition,
+while decoupled and not-yet-decoupled code coexist in one module, so expect it in SoEwald2D and
+FastSpecSoG too.
+
+#### 4.3b Version numbers: a decoupling is a breaking change
+
+Moving `ExTinyMD` to `[weakdeps]` removes exported names (the old `Pkg_Es`/`Pkg_Fs!`-style
+adapter entry points become `ExTinyMD.energy`/`update_acceleration!` methods), raises the julia
+floor, and changes dependency bounds. For any package **registered in General**, that requires a
+minor bump under 0.x semver. Check registration with
+`Pkg.Registry.reachable_registries()` rather than assuming — of the five, QuasiEwald, SoEwald2D,
+FastSpecSoG and ExTinyMD are registered; ParticleMeshEwald is not.
+
+Applied: QuasiEwald 0.2.1 → **0.3.0**.
+
 ### 4.4 `Project.toml` shape
 
 ```toml
@@ -380,6 +437,31 @@ QuasiEwald also has a second relocation the others do not: its `SortingFinder` s
 `ExTinyMD.AbstractNeighborFinder`, so it faces the same problem as the interaction types and
 moves to the extension alongside them. Learning that on the first package rather than the
 last is a small compensation for the reordering.
+
+### 7a. Phase 3b outcome, and what it hands Phase 3c
+
+QuasiEwald is done (branch `decouple-extinymd`, 6 commits, suite 3874/3874 verified by the
+controller independently of the implementer's report). Three things it learned that change the
+work for SoEwald2D and FastSpecSoG:
+
+1. **§4.3a-bis** — the dispatcher-function pattern, which preserved all three interaction/finder
+   names. Check for type-position uses before reusing it.
+2. **§4.3b** — registered packages need a minor version bump. SoEwald2D and FastSpecSoG are both
+   registered, so both need one.
+3. **`import ExTinyMD`, not `using`** — otherwise a bare `function energy(...)` will not compile
+   while coupled and decoupled code coexist in one module.
+
+**SoEwald2D needs a `[sources]` override for QuasiEwald, not only for ExTinyMD.** Verified: its
+test target lists QuasiEwald with no `[compat]` bound, so it resolves the *registry* QuasiEwald
+0.2.x, which is pinned to CellListMap 0.9. The moment SoEwald2D moves to 0.10 that resolve
+fails. This adds QuasiEwald to the set of git-URL pins its `Project.toml` carries, and hence to
+the §6b removal checklist.
+
+A second, smaller trap in the same file: **SoEwald2D declares its test environment twice** —
+once as `[extras]`/`[targets]` in the top-level `Project.toml` and once as a separate
+`test/Project.toml`. Julia honours `test/Project.toml` when present and ignores the
+`[extras]`/`[targets]` pair, so edits made only to the latter will appear to do nothing. Decide
+which one survives before starting, and put the `[sources]` block where it is actually read.
 
 Each package is independently mergeable and leaves its repository working, so the phase can
 stop cleanly after any of them.
