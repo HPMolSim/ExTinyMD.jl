@@ -117,3 +117,52 @@ end
         @test isapprox(F2[i], 2 .* F1[i], rtol = 1e-12)
     end
 end
+
+@testset "PME3D composite matches Ewald3D" begin
+    Random.seed!(1234)
+    n = 30
+    L = (12.0, 12.0, 12.0)
+    α, s = 0.8, 3.5
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+
+    e = Ewald3D(n, L; α = α, s = s)
+    p = PME3D(n, L; α = α, s = s)
+    @test p isa ExTinyMD.AbstractInteraction
+
+    @test isapprox(coulomb_energy(p, poses, charges),
+                   coulomb_energy(e, poses, charges), rtol = 1e-12)
+
+    Fe = coulomb_force(e, poses, charges)
+    Fp = coulomb_force(p, poses, charges)
+    for i in 1:n, d in 1:3
+        @test isapprox(Fp[i][d], Fe[i][d], rtol = 1e-10, atol = 1e-16)
+    end
+end
+
+@testset "PME3D drives simulate! through the adapter" begin
+    # The adapter and EwaldShort are reused unchanged; this confirms a PME3D
+    # composite is a drop-in for Ewald3D in an actual MD run.
+    Random.seed!(20260915)
+    n, L = 30, 12.0
+    boundary = Boundary((L, L, L), (1, 1, 1))
+    atoms = Vector{Atom{Float64}}()
+    for i in 1:(n ÷ 2); push!(atoms, Atom(type = 1, mass = 1.0, charge = 1.0)); end
+    for i in (n ÷ 2 + 1):n; push!(atoms, Atom(type = 2, mass = 1.0, charge = -1.0)); end
+    info = SimulationInfo(n, atoms, (0.0, L, 0.0, L, 0.0, L), boundary;
+                          min_r = 1.0, temp = 1.0)
+    info.running_step = 1
+
+    inter = PME3D(n, (L, L, L); α = 0.8, s = 3.5)   # r_c = 4.375 < 6
+    finder = CellList3D(info, inter.short.r_c, boundary, 1)
+    sys = MDSys(n_atoms = n, atoms = atoms, boundary = boundary,
+                interactions = [(inter, finder)],
+                loggers = [TemperatureLogger(1000; output = false)],
+                simulator = VerletProcess(dt = 1e-4))
+
+    E0 = energy(inter, finder, sys, info)
+    simulate!(sys.simulator, sys, info, 200)
+    E1 = energy(inter, finder, sys, info)
+    @test isfinite(E1)
+    @test abs(E1 - E0) < 0.05 * max(abs(E0), 1.0)
+end

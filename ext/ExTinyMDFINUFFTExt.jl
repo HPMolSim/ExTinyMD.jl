@@ -175,4 +175,11 @@ function ExTinyMD.long_force!(F::Vector{SVector{3,T}}, long::PME3DLong{T}, poses
     return F
 end
 
+function ExTinyMD.PME3D(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T),
+                        ϵ_inf::T = T(Inf)) where {T}
+    short = EwaldShort(n_atoms, L; α = α, s = s, ϵ = ϵ, convention = Periodic3D())
+    long  = PME3DLong(n_atoms, L; α = α, s = s, ϵ = ϵ, ϵ_inf = ϵ_inf)
+    return EwaldInteraction(short, long, n_atoms)
+end
+
 end # module
