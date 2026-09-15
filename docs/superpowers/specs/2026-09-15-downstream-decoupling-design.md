@@ -1,7 +1,7 @@
 # Phase 3: Decoupling the Downstream Electrostatics Packages — Design
 
 Date: 2026-09-15
-Status: draft, awaiting review
+Status: in progress — §5.1 ParticleMeshEwald complete and reviewed; §5.4 EwaldSummations descoped by the user
 
 ## 1. Context
 
@@ -108,6 +108,109 @@ calls the core and, for forces, divides by mass and accumulates. Phase 1's
 `src/interactions/electrostatics/adapter.jl` is the reference implementation; the gather
 pattern and its `_finder_list` fallback for `NoNeighborFinder` transfer directly.
 
+### 4.3a The interaction type must live in the extension, not `src/`
+
+**Discovered while decoupling ParticleMeshEwald, and it governs the remaining four packages.**
+
+`MDSys` requires its interactions to subtype `ExTinyMD.AbstractInteraction`. A supertype is
+fixed at struct definition and **no extension can retrofit one**. So a type defined in `src/`,
+where ExTinyMD does not exist, can never be placed in `sys.interactions` — it is not a matter
+of writing the adapter differently.
+
+ParticleMeshEwald absorbed this without loss: it has no forces, so it could never drive
+`simulate!` regardless, and its extension supplies `ExTinyMD.energy` alone. QuasiEwald,
+SoEwald2D and FastSpecSoG all currently *do* put their interactions in `sys.interactions`, so
+for them the naive reading of this design would trade away MD integration entirely — which is
+half of what the user asked for.
+
+The resolution follows the two-layer contract already in force, taken one step further:
+
+- **`src/` defines the plan** — parameters plus scratch, no ExTinyMD, constructed and queried
+  from plain arrays. This is what a standalone user touches.
+- **`ext/` defines a thin interaction wrapper** subtyping `ExTinyMD.AbstractInteraction` and
+  holding a plan, plus the `ExTinyMD.energy` / `ExTinyMD.update_acceleration!` methods on it.
+  This is what goes in `sys.interactions`.
+
+```julia
+# src/  — no ExTinyMD anywhere
+struct QuasiEwaldPlan{T, ...}
+    ...
+end
+QuasiEwald.energy(plan, poses, charges)
+
+# ext/QuasiEwaldExTinyMDExt.jl
+struct QuasiEwaldInteraction{P} <: ExTinyMD.AbstractInteraction
+    plan::P
+end
+ExTinyMD.energy(i::QuasiEwaldInteraction, finder, sys, info) = ...
+ExTinyMD.update_acceleration!(i::QuasiEwaldInteraction, finder, sys, info) = ...
+```
+
+The wrapper is a few lines and carries no physics. Standalone users never see it; MD users
+construct it from a plan. Both requirements are met without ExTinyMD becoming a hard
+dependency.
+
+A consequence worth stating: the interaction *type name* changes for these packages, since the
+old name is the plan now. That is a breaking change, appropriate at 0.x, and the migration is
+one line at each construction site.
+
+#### 4.3a-bis Preserving the old name: the dispatcher-function pattern
+
+**Discovered while decoupling QuasiEwald, which is the first package to actually need a wrapper
+*type* rather than just a method.** It supersedes the closing paragraph above: the interaction
+type name does *not* have to change, though preserving it costs something.
+
+§4.3a is right that a supertype is fixed at struct definition. What it does not say is the
+stronger constraint underneath: **a struct definition cannot be dot-qualified at all.**
+`struct QuasiEwald.Foo <: ExTinyMD.AbstractInteraction ... end` is not legal Julia, so an
+extension cannot define a type *into* its parent package's namespace the way it defines a
+method into a parent's generic function. The wrapper type genuinely lives in the extension
+module's own namespace.
+
+To keep `using QuasiEwald, ExTinyMD; QuasiEwaldShortInteraction(...)` working unchanged, `src/`
+declares the name as a plain **dispatcher function** that forwards through
+`Base.get_extension`:
+
+```julia
+# src/ — no ExTinyMD, and no type of this name either
+for name in (:QuasiEwaldShortInteraction, :QuasiEwaldLongInteraction, :SortingFinder)
+    @eval function $name(args...; kwargs...)
+        ext = Base.get_extension(QuasiEwald, :QuasiEwaldExTinyMDExt)
+        ext === nothing && error($(string(name)) * " requires ExTinyMD to be loaded")
+        return getfield(ext, $(QuoteNode(name)))(args...; kwargs...)
+    end
+end
+```
+
+**The cost, and it must be checked per package before choosing this:** the preserved name is a
+*function*, not a type. Every construction site keeps working; every **type-position** use
+breaks — `::QuasiEwaldShortInteraction`, `Vector{QuasiEwaldShortInteraction}`,
+`isa QuasiEwaldShortInteraction`, and any method dispatching on it. Before adopting the pattern
+for a package, grep the package *and its dependents* for type-position uses of the name. For
+QuasiEwald this was zero (construction only, 20 sites), so the pattern was free and the
+migration was one convenience constructor instead of edits to five test files and two examples.
+If a package has type-position uses, rename instead, per §4.3a's original advice, and let the
+plan take the old name.
+
+A second, unrelated Julia constraint surfaced at the same time: a package cannot define a bare
+`function energy(...)` (per §4.2) while its module still does a blanket `using ExTinyMD`, since
+ExTinyMD exports `energy` and Julia refuses to shadow a `using`-imported binding with a new
+local definition — even for a disjoint signature. **Switch to `import ExTinyMD` plus a narrow
+`using ExTinyMD: <the names actually used unqualified>`.** This bites during the transition,
+while decoupled and not-yet-decoupled code coexist in one module, so expect it in SoEwald2D and
+FastSpecSoG too.
+
+#### 4.3b Version numbers: a decoupling is a breaking change
+
+Moving `ExTinyMD` to `[weakdeps]` removes exported names (the old `Pkg_Es`/`Pkg_Fs!`-style
+adapter entry points become `ExTinyMD.energy`/`update_acceleration!` methods), raises the julia
+floor, and changes dependency bounds. For any package **registered in General**, that requires a
+minor bump under 0.x semver. Check registration with
+`Pkg.Registry.reachable_registries()` rather than assuming — of the five, QuasiEwald, SoEwald2D,
+FastSpecSoG and ExTinyMD are registered; ParticleMeshEwald is not.
+
+Applied: QuasiEwald 0.2.1 → **0.3.0**.
+
 ### 4.4 `Project.toml` shape
 
 ```toml
@@ -152,6 +255,24 @@ is element 0 when `threadid()` is 1.
 **This package is now largely superseded by ExTinyMD's `PME3D`** — see §8. This phase makes it
 work as asked and does not act on that.
 
+**Outcome, as completed.** CellListMap bumped to 0.10 (the co-resolution blocker), AoS query
+API with no caller mutation, `energy`/`energy_short`/`energy_long` un-exported, the
+`threadid()-1` accumulator and the whole KernelAbstractions kernel removed (no GPU backend was
+ever used anywhere in the repository, and the kernel was the bug's only source), the
+`examples/utils.jl` include removed after confirming by grep that what it defined was
+referenced nowhere, and an `ext/` supplying `ExTinyMD.energy` only. Baseline energies
+unchanged across eight configurations. 16 tests, up from 9.
+
+Two things it exposed that the plan did not anticipate. First, capturing baseline energies is
+harder than it looks: ExTinyMD's `SimulationInfo` consumes `rand()` internally, so a
+comparison script that constructs one shifts the RNG stream and the "before" numbers are not
+comparable to the "after" ones. The implementer caught this itself and re-derived the baseline
+from unmodified source via `git stash`. Any per-package before/after check in this phase must
+either avoid `SimulationInfo` or seed immediately before each measurement. Second, the first
+failure after the compat bump was not the expected `MethodError` but an unsatisfiable
+`Pkg.test()` resolve, because the registered EwaldSummations and ExTinyMD both still pin
+CellListMap 0.9 — so part of the `[weakdeps]` cleanup had to be pulled forward.
+
 ### 5.2 SoEwald2D — lightest of the four coupled packages
 
 823 src LOC, coupling concentrated in `SimulationInfo`/`MDSys` rather than `Point`. Already
@@ -163,7 +284,27 @@ defines `ExTinyMD.update_acceleration!`, so the adapter mostly moves rather than
 generation — `energy(interaction, neighbor, info, atoms)` — and has **no**
 `update_acceleration!`, so its adapter is new work rather than a move.
 
-### 5.4 EwaldSummations — thin it, per the user's decision
+### 5.4 EwaldSummations — OUT OF SCOPE
+
+**The user removed this package from the phase on 2026-09-15:** "no need to include
+EwaldSummations, the others are good."
+
+It therefore stays on `ExTinyMD = "0.2"` / `CellListMap = "0.9"`, is not decoupled, is not
+thinned, and its k-space implementations are not deleted. Two consequences:
+
+- **The migration check is no longer a gate.** Phase 1's spec §8.2 deferred to this phase a
+  script proving ExTinyMD's stdlib reproduces EwaldSummations before the latter's code was
+  removed. Nothing is being removed, so nothing needs gating. The check retains independent
+  value as cross-validation against an implementation nobody has touched, but it is optional
+  and unscheduled.
+- **FastSpecSoG cannot keep EwaldSummations as a test dependency.** Its tests use
+  `Ewald2DInteraction`, `Ewald2D_short_energy_N` and `Ewald2D_long_energy_N` as accuracy
+  references. Since EwaldSummations stays on CellListMap 0.9, FastSpecSoG's test target will
+  not resolve once it moves to 0.10. The substitution is ExTinyMD's own `Ewald2D`, which is a
+  strictly better reference: same physics, and 1128 tests behind it rather than an
+  unmaintained package. See §5.3.
+
+*Original plan, retained for the record:*
 
 1164 src LOC, **100 `Point` uses**. The user chose to thin this package: ExTinyMD's stdlib now
 owns the k-space Ewald methods, and EwaldSummations keeps what is genuinely its own — direct
@@ -207,13 +348,170 @@ wrong reason rather than one that failed. The smoke test above is the one most a
 being vacuous: it must genuinely run in a session where ExTinyMD was never loaded, not merely
 avoid mentioning it.
 
+## 6a. Lessons from ParticleMeshEwald, to be applied to the other four
+
+Phase 3a was deliberately sequenced first to find these cheaply. All were confirmed by its
+reviewer independently rather than taken on report.
+
+**1. Task 1 will fail to resolve before it fails to compile.** The plan predicted a
+`MethodError` from CellListMap's renamed keyword as the first failure after the compat bump.
+The actual first failure was an unsatisfiable `Pkg.test()` resolve: the *published* versions
+of ExTinyMD and EwaldSummations still pin CellListMap 0.9, so any package listing them as
+test dependencies cannot resolve once it moves to 0.10. None of the four remaining packages'
+published versions are on 0.10 either, so **each plan must schedule dropping or re-pinning
+stale registry test dependencies as part of the compat task**, not discover it mid-flight.
+
+**2. The wrapper pattern of §4.3a is validated, but PME did not exercise it.** PME has no
+forces, so its extension supplies `ExTinyMD.energy` only and never needed a wrapper at all.
+The four remaining packages do need one. Their adapter tests must therefore **drive
+`simulate!` with the wrapper placed in `sys.interactions`**, not merely call
+`ExTinyMD.energy` directly — that is the only thing that tests the wrapper under load, and
+it is what catches the id/slot, mass-division and accumulation faults that per-call tests
+cannot.
+
+**3. Baseline captures are contaminated by `SimulationInfo`.** It consumes `rand()`
+internally, so a before/after comparison script that constructs one shifts the RNG stream and
+the two sets of numbers are not comparable. Seed immediately before each measurement, or
+avoid `SimulationInfo` in the comparison entirely. PME's implementer caught its own
+contaminated capture and re-derived from unmodified source via `git stash`.
+
+**4. `@inbounds arr[0] += x` does not throw.** The `threadid() - 1` accumulator bug was worse
+than "would raise a `BoundsError`" — under `@inbounds` it is an undefined-behaviour write that
+produces a wrong energy silently. Worth knowing wherever this idiom appears in the remaining
+packages; grep for `threadid` in each.
+
+**5. Verify every "this test would fail" claim by making it fail.** PME's implementer
+hand-verified the standalone test by adding `using ExTinyMD` to its subprocess script, and the
+threading bug by observing the silent corruption. Across Phases 1–2, eleven specifications
+proved defective and every one was a test that passed for the wrong reason. This is the
+single discipline that has caught the most.
+
+## 6b. Release checklist — `[sources]` must be removed across all five together
+
+ExTinyMD 0.3 is **not in the General registry** (only 0.2.7 is), so each decoupled package
+needs a `[sources]` override to resolve during this phase.
+
+**Use the git URL, not a sibling path.** A `{path = "../ExTinyMD.jl"}` pin resolves locally but
+cannot work in CI, where only the one repository is checked out and `actions/checkout` will not
+write outside the workspace. Verified on ParticleMeshEwald: with a path pin, `Pkg.test()` fails
+with `expected package ExTinyMD [fec76197] to exist at path .../ExTinyMD.jl`. Use
+`{url = "https://github.com/HPMolSim/ExTinyMD.jl", rev = "main"}`.
+
+A package pinned to an **unmerged branch** of a sibling (SoEwald2D needs QuasiEwald, whose
+decoupling is on `decouple-extinymd`) must pin that branch by name and be updated to
+`rev = "main"` once it lands. That is a second, per-package gate on top of the registration
+gate below.
+
+That is not merely inconvenient for outside users. **General's automerge rejects any package
+whose `Project.toml` carries a `[sources]` section**, so no package can be tagged or
+registered while the override is present. Five inline comments will not reliably be
+remembered, so it is recorded here as one coordinated item:
+
+- [ ] Register ExTinyMD 0.3 (and settle its version number — it has read `0.3.0` since before
+      Phase 1, with three phases of new exported API added under it). **This is the gate on
+      everything else in this list.**
+- [ ] Repoint SoEwald2D's QuasiEwald pin from `rev = "decouple-extinymd"` to `rev = "main"`
+      once QuasiEwald PR #5 lands
+- [ ] Remove `[sources]` from ParticleMeshEwald (PR #8 merged 2026-09-15; repo is
+      `flatironinstitute/ParticleMeshEwald.jl`, **not** HPMolSim, and it is the one package of
+      the five **not** registered in General)
+- [ ] Remove `[sources]` from QuasiEwald (PR #5; 0.2.1 → 0.3.0)
+- [ ] Remove `[sources]` from SoEwald2D (0.1.5 → 0.2.0)
+- [ ] Remove `[sources]` from FastSpecSoG (0.1.0 → 0.2.0)
+- [ ] ~~Remove `[sources]` from EwaldSummations~~ — out of scope, never decoupled, stays on
+      CellListMap 0.9 and ExTinyMD 0.2
+- [ ] Confirm each resolves from the registry with no local path and no git URL
+
+### Landed so far
+
+| | state |
+|---|---|
+| ExTinyMD Phase 1 (electrostatics stdlib) | merged, PRs #11/#12 |
+| ExTinyMD Phase 2 (PME3D/ICMPME3D via FINUFFT) | merged, PR #13 |
+| ParticleMeshEwald (Phase 3a) | merged, PR #8 |
+| QuasiEwald (Phase 3b) | PR #5 open |
+
+### A CI trap worth one line
+
+**Check each package's CI matrix against the `julia` compat floor you just raised.** QuasiEwald's
+matrix tested `'1.9'` while the decoupling raised its floor to `1.10`, so a job failed for no
+reason but the mismatch. Prefer `'lts'` + `'1'` + `'nightly'`, which tracks the floor
+automatically, as ExTinyMD's own CI does. SoEwald2D (`'1'`) and FastSpecSoG
+(`'1.10'`/`'1.11'`/`'nightly'`) were already fine.
+
+Until that is done, all five are usable from sibling checkouts only. This is a deliberate,
+documented interim state, not an oversight — but it is the gate on any of them being released.
+
 ## 7. Sequencing
 
-One plan per package, executed in the §5 order. Each is independently mergeable and leaves the
-repository working, so the phase can stop cleanly after any package.
+**Order: QuasiEwald → SoEwald2D → FastSpecSoG.** ParticleMeshEwald is done; EwaldSummations
+is out of scope.
 
-ParticleMeshEwald first is deliberate: it is the cheapest place to discover that something
-about the `[weakdeps]`/`[extensions]`/`ext/` arrangement does not work as expected.
+This is the reverse of ordering by coupling weight, and the reason is the inter-package test
+dependency graph, checked rather than assumed:
+
+| package | test target depends on | consequence |
+|---|---|---|
+| QuasiEwald | `Test` only | nothing blocks it — goes first |
+| SoEwald2D | **QuasiEwald** (`IcmSys`, `IcmSysInit`, used as an ICM reference in 6 places) | needs a decoupled QuasiEwald on CellListMap 0.10, so it goes second |
+| FastSpecSoG | **EwaldSummations** (`Ewald2DInteraction` and friends, as accuracy references) | out of scope now, so this must be swapped for ExTinyMD's `Ewald2D` — goes last |
+
+The order is forced, but **not** by CellListMap, which is what an earlier draft of this section
+claimed. Decoupling QuasiEwald showed that it never called CellListMap at all — it only ever
+consumed neighbor lists built by ExTinyMD's own `CellListQ2D`/`CellListDirQ2D` — so the
+dependency was dead and has been dropped outright (its Task-1 "bump to 0.10" was cosmetic).
+
+The real constraint is the **ExTinyMD version**. A decoupled package requires ExTinyMD 0.3, and
+a not-yet-decoupled package caps it at 0.2. So SoEwald2D cannot pick up QuasiEwald 0.3 in its
+test environment while its own `[compat]` still says `ExTinyMD = "0.2"`: the two bounds have no
+common solution. SoEwald2D must therefore move to ExTinyMD 0.3 in the same change that picks up
+the decoupled QuasiEwald. Same ordering, different mechanism — and the mechanism matters,
+because a package that never depended on CellListMap would otherwise look unblocked when it is
+not.
+
+Worth checking per package for the same reason: **a CellListMap bump may be dead work.** Grep
+for `InPlaceNeighborList`/`neighborlist!`/`update!` before assuming the 0.9 → 0.10 migration has
+any call sites to fix.
+
+The cost is that the §4.3a wrapper pattern gets its first `simulate!` exercise on the
+heaviest package rather than the lightest. That is acceptable because the pattern's
+*soundness* is already established — ParticleMeshEwald's reviewer verified by execution that
+a struct defined inside an extension module can subtype `ExTinyMD.AbstractInteraction`, and
+that `PME <: AbstractInteraction` is false even with the extension loaded. What remains
+untested is ergonomics under load, not whether it works.
+
+QuasiEwald also has a second relocation the others do not: its `SortingFinder` subtypes
+`ExTinyMD.AbstractNeighborFinder`, so it faces the same problem as the interaction types and
+moves to the extension alongside them. Learning that on the first package rather than the
+last is a small compensation for the reordering.
+
+### 7a. Phase 3b outcome, and what it hands Phase 3c
+
+QuasiEwald is done (branch `decouple-extinymd`, 6 commits, suite 3874/3874 verified by the
+controller independently of the implementer's report). Three things it learned that change the
+work for SoEwald2D and FastSpecSoG:
+
+1. **§4.3a-bis** — the dispatcher-function pattern, which preserved all three interaction/finder
+   names. Check for type-position uses before reusing it.
+2. **§4.3b** — registered packages need a minor version bump. SoEwald2D and FastSpecSoG are both
+   registered, so both need one.
+3. **`import ExTinyMD`, not `using`** — otherwise a bare `function energy(...)` will not compile
+   while coupled and decoupled code coexist in one module.
+
+**SoEwald2D needs a `[sources]` override for QuasiEwald, not only for ExTinyMD.** Verified: its
+test target lists QuasiEwald with no `[compat]` bound, so it resolves the *registry* QuasiEwald
+0.2.x, which is pinned to CellListMap 0.9. The moment SoEwald2D moves to 0.10 that resolve
+fails. This adds QuasiEwald to the set of git-URL pins its `Project.toml` carries, and hence to
+the §6b removal checklist.
+
+A second, smaller trap in the same file: **SoEwald2D declares its test environment twice** —
+once as `[extras]`/`[targets]` in the top-level `Project.toml` and once as a separate
+`test/Project.toml`. Julia honours `test/Project.toml` when present and ignores the
+`[extras]`/`[targets]` pair, so edits made only to the latter will appear to do nothing. Decide
+which one survives before starting, and put the `[sources]` block where it is actually read.
+
+Each package is independently mergeable and leaves its repository working, so the phase can
+stop cleanly after any of them.
 
 ## 8. Open question for the user: ParticleMeshEwald's future
 
