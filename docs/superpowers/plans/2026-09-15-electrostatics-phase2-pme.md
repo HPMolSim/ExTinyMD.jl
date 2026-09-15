@@ -234,10 +234,6 @@ struct PME3DLong{T, P1, P2}
     oz::Vector{Complex{T}}
     plan1::P1
     plan2::P2
-    # plan2's non-uniform points depend on n_target, so remember what it was last
-    # set to and re-setpts only when it changes.
-    plan2_npts::Base.RefValue{Int}
-    plan1_npts::Base.RefValue{Int}
 end
 
 Base.show(io::IO, l::PME3DLong) =
@@ -336,7 +332,7 @@ function ExTinyMD.PME3DLong(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = o
         zeros(Complex{T}, dims), zeros(Complex{T}, dims), zeros(Complex{T}, dims),
         zeros(T, n_atoms), zeros(T, n_atoms), zeros(T, n_atoms),
         zeros(Complex{T}, n_atoms), zeros(Complex{T}, n_atoms), zeros(Complex{T}, n_atoms),
-        plan1, plan2, Ref(0), Ref(0))
+        plan1, plan2)
 end
 
 # Scale the first `m` positions into the plan's own buffers. Never touch `poses`.
@@ -352,14 +348,11 @@ end
 
 # Type-1 transform of the first `m` charges into `out`. `out` is zeroed by FINUFFT.
 function _structure_factor!(out, long::PME3DLong{T}, poses, charges, m::Int,
-                            npts::Base.RefValue{Int}, plan) where {T}
+                            plan) where {T}
     _scale!(long, poses, m)
-    if npts[] != m
-        finufft_setpts!(plan, view(long.xs, 1:m), view(long.ys, 1:m), view(long.zs, 1:m))
-        npts[] = m
-    else
-        finufft_setpts!(plan, view(long.xs, 1:m), view(long.ys, 1:m), view(long.zs, 1:m))
-    end
+    # Always re-set the points: positions move every timestep, so there is no
+    # count-based shortcut worth taking.
+    finufft_setpts!(plan, view(long.xs, 1:m), view(long.ys, 1:m), view(long.zs, 1:m))
     q = Complex{T}[charges[j] for j in 1:m]
     finufft_exec!(plan, q, out)
     return out
@@ -368,7 +361,7 @@ end
 function ExTinyMD.long_energy(long::PME3DLong{T}, poses, charges;
                               n_target::Int = long.n_atoms) where {T}
     n = long.n_atoms
-    _structure_factor!(long.ρ_src, long, poses, charges, n, long.plan1_npts, long.plan1)
+    _structure_factor!(long.ρ_src, long, poses, charges, n, long.plan1)
 
     V = long.L[1] * long.L[2] * long.L[3]
     E = zero(T)
@@ -378,8 +371,7 @@ function ExTinyMD.long_energy(long::PME3DLong{T}, poses, charges;
             E += abs2(long.ρ_src[idx]) * long.D[idx]
         end
     else
-        _structure_factor!(long.ρ_tgt, long, poses, charges, n_target,
-                           long.plan1_npts, long.plan1)
+        _structure_factor!(long.ρ_tgt, long, poses, charges, n_target, long.plan1)
         @inbounds for idx in eachindex(long.D)
             E += real(conj(long.ρ_src[idx]) * long.ρ_tgt[idx]) * long.D[idx]
         end
@@ -406,7 +398,7 @@ end # module
 
 **Two things to get right here**, both of which the controller hit while validating:
 
-1. `_structure_factor!` calls `finufft_setpts!` on every invocation because the *positions* move every timestep, not only when `n_target` changes. The `npts` Ref exists to detect a change in point count, but points must be re-set regardless — do not "optimise" the `setpts!` away when the count matches. Keep it simple and always call it; the Ref is there for a future guard, so if you find it genuinely unused, **delete it rather than leave a write-only field** and say so in your report.
+1. `_structure_factor!` calls `finufft_setpts!` on every invocation, because the positions move every timestep. There is no count-based shortcut worth taking, and no Ref tracking the last point count — an earlier draft of this plan carried `plan1_npts`/`plan2_npts` fields for that purpose and they were deleted during Task 1 as write-only.
 
 2. `long.ρ_src` and `long.ρ_tgt` must be distinct arrays, and the second transform must not clobber the first. FINUFFT writes its whole output array, so no manual zeroing is needed for `ρ_*` — but `hx/hy/hz` in Task 2 **are** only partially written and must be zeroed explicitly.
 
@@ -518,7 +510,7 @@ Add to `ext/ExTinyMDFINUFFTExt.jl`:
 function ExTinyMD.long_force!(F::Vector{SVector{3,T}}, long::PME3DLong{T}, poses,
                               charges; n_target::Int = long.n_atoms) where {T}
     n = long.n_atoms
-    _structure_factor!(long.ρ_src, long, poses, charges, n, long.plan1_npts, long.plan1)
+    _structure_factor!(long.ρ_src, long, poses, charges, n, long.plan1)
 
     n_k = long.n_k
     dims = size(long.D)
@@ -545,7 +537,6 @@ function ExTinyMD.long_force!(F::Vector{SVector{3,T}}, long::PME3DLong{T}, poses
     _scale!(long, poses, n_target)
     finufft_setpts!(long.plan2, view(long.xs, 1:n_target),
                     view(long.ys, 1:n_target), view(long.zs, 1:n_target))
-    long.plan2_npts[] = n_target
 
     ox = view(long.ox, 1:n_target)
     oy = view(long.oy, 1:n_target)
