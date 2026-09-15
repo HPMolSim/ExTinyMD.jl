@@ -458,6 +458,38 @@ and FastSpecSoG now resolve entirely from the registry. Only SoEwald2D still car
 only because it test-depends on QuasiEwald — so the chain of gates is now
 `QuasiEwald PR #5 → tag → register → SoEwald2D's pin can go`.
 
+## 6d. Two of my own claims that measurement overturned
+
+Recorded because in both cases the plan asserted something plausible and an implementer
+disproved it by running it, and the next person reading these plans should not inherit the
+error.
+
+**1. The `_min_image_slab` snippet given verbatim in the Phase 3c and 3d plans was not
+bit-identical.** It computed `dx = _wrap(pos_i - pos_j, L)` and rebuilt `coord_i = pos_j + dx`.
+`position_check3D` instead shifts `pos_i` by a whole number of periods and subtracts afterwards,
+so the plan's form evaluates `(a - b) - L` where the original evaluates `(a - L) - b` — the same
+value mathematically, different in the last bits. Measured: in SoEwald2D, up to 2.2e-16 relative
+on the short-range energy and 1.5e-14 on forces; in FastSpecSoG, differing on 5 of 151 in-range
+pairs by up to 6.86e-16 and moving one of 100 `energy_per_atom` entries by 1 ulp. The shift form
+differs on 0 of 151 pairs, max 0.0.
+
+Both implementers were told "match the original operation order" as a step instruction *and*
+handed contradicting code. Both correctly followed the instruction over the code. **Take the
+image count first and apply it to `pos_i`.** A comment saying why is mandatory, because the
+natural simplification reintroduces the drift.
+
+**2. An α/s swap in `Ewald2D(n_atoms, L; α, s, ϵ)` is NOT the silent failure the Phase 3d plan
+described.** The plan claimed the total would stay correct while the short/long split went wrong,
+since the total is α-independent. Two things are wrong with that. `k_c = 2αs` is **symmetric in
+α and s**, so a `k_c`-based assertion cannot detect a swap at all; and `r_c = s/α` is not
+symmetric, going from 20 to 0.05 for the pair in question, which does not subtly misplace the
+split but produces a grossly wrong answer — or refuses to construct, since `r_c` must be under
+half the smallest box side. The swap is loud, not silent; it is just not visible in `k_c`.
+
+What does pin the split is a reference that recomputes `r_c` and `k_c` from literal α and s and
+requires its short part, long part and total to match `short_energy`/`long_energy`/
+`coulomb_energy` independently.
+
 ## 6c. The finding this phase actually produced
 
 Decoupling was supposed to be a restructuring. It turned out to be a bug hunt, and the bugs
