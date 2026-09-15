@@ -337,6 +337,17 @@ end
     @test all(all(isfinite, f) for f in F)
 end
 
+# Function barriers for the allocation testset below: an `@allocated`
+# measurement taken directly at top level would also see allocation from
+# boxing non-const globals, so the call is wrapped in a function with concrete
+# argument types to isolate the measurement to the call itself. These must be
+# genuine top-level methods, not closures defined inside the `@testset` body:
+# `@testset` wraps its body in a function, so a helper defined there becomes a
+# local closure, which can box a captured value on some Julia versions in a
+# way a top-level method does not.
+_energy_call(long, poses, charges) = long_energy(long, poses, charges)
+_force_call!(F, long, poses, charges) = long_force!(F, long, poses, charges)
+
 @testset "PME3DLong long_energy and long_force! allocate nothing at steady state" begin
     # FIX 2 regression. `_structure_factor!` used to build a fresh
     # `Complex{T}[charges[j] for j in 1:m]` on every call — 16·n bytes, forever,
@@ -359,20 +370,47 @@ end
     pme = PME3DLong(n, L; α = α, s = s)
     F = [zero(SVector{3,Float64}) for _ in 1:n]
 
-    # Function barriers: an `@allocated` measurement taken directly at top level
-    # would also see allocation from boxing non-const globals; wrapping the call
-    # in a function with concrete argument types isolates the measurement to the
-    # call itself. (No precedent for this exact idiom was found elsewhere in the
-    # test suite at the time of writing; this is the standard `@allocated` +
-    # function-barrier pattern.)
-    _energy_call(long, poses, charges) = long_energy(long, poses, charges)
-    _force_call!(F, long, poses, charges) = long_force!(F, long, poses, charges)
+    # A second, smaller plan for the scaling check below.
+    n_small = 50
+    poses_small = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n_small]
+    charges_small = [isodd(i) ? 1.0 : -1.0 for i in 1:n_small]
+    pme_small = PME3DLong(n_small, L; α = α, s = s)
+    F_small = [zero(SVector{3,Float64}) for _ in 1:n_small]
 
     _energy_call(pme, poses, charges)      # warm up: compile before measuring
     _force_call!(F, pme, poses, charges)
+    _energy_call(pme_small, poses_small, charges_small)
+    _force_call!(F_small, pme_small, poses_small, charges_small)
 
-    @test @allocated(_energy_call(pme, poses, charges)) == 0
+    # `long_force!` is genuinely 0 B on every Julia version checked (1.10
+    # through nightly); `long_energy` is 0 B on Julia 1.11+ but a constant 16 B
+    # on Julia 1.10.12 (this package's declared minimum) even measured through
+    # a top-level, non-closure function barrier — confirmed with
+    # `julia +1.10 --project=. -e 'using Pkg; Pkg.test()'` and reproduced
+    # standalone outside the test harness, deterministically, at both n = 500
+    # and n = 50 (16 B both times, i.e. not `O(n)`). This is not the closure
+    # boxing FIX 2's own regression test originally worried about — the
+    # helpers are already top-level methods here — so it looks like a small,
+    # version-specific difference inside `long_energy` itself (or its call
+    # chain) that Julia 1.11's optimiser elides and 1.10's does not. Asserting
+    # `== 0` for `long_energy` would therefore be flaky across the CI matrix;
+    # the scaling assertion below is the actual property this test exists to
+    # protect (the original defect was `16·n` bytes, not a small constant), and
+    # it holds on every version.
     @test @allocated(_force_call!(F, pme, poses, charges)) == 0
+
+    # The defect this guards against was O(n): 8360 B at n = 500, 8648 B for
+    # force. Asserting a constant bound (rather than exact equality, for the
+    # reason above) means a future regression that reintroduces per-call,
+    # per-particle allocation fails loudly on the scaling, regardless of what
+    # small Julia-version-dependent constant is or is not present.
+    a_energy_small = @allocated _energy_call(pme_small, poses_small, charges_small)
+    a_energy_large = @allocated _energy_call(pme, poses, charges)
+    @test a_energy_large <= a_energy_small + 64
+
+    a_force_small = @allocated _force_call!(F_small, pme_small, poses_small, charges_small)
+    a_force_large = @allocated _force_call!(F, pme, poses, charges)
+    @test a_force_large <= a_force_small + 64
 end
 
 @testset "PME3DLong destroys its FINUFFT plans (does not leak them)" begin
