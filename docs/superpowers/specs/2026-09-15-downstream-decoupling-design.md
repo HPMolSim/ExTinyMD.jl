@@ -407,17 +407,31 @@ whose `Project.toml` carries a `[sources]` section**, so no package can be tagge
 registered while the override is present. Five inline comments will not reliably be
 remembered, so it is recorded here as one coordinated item:
 
-- [ ] Register ExTinyMD 0.3 (and settle its version number — it has read `0.3.0` since before
-      Phase 1, with three phases of new exported API added under it). **This is the gate on
-      everything else in this list.**
+- [x] **Register ExTinyMD 0.3 — DONE.** `v0.3.0` is tagged at `0c2c5ff1` (the PR #13 merge) and
+      resolves from General. Verified by execution, not by the tag's existence: a scratch
+      environment doing `Pkg.add(PackageSpec(name="ExTinyMD", version=v"0.3"))` installs it, and
+      the installed copy has `Ewald2D`, `coulomb_energy`, `PME3D` and `ICMEwald2D` defined.
+
+      **That verification was necessary, not ceremonial.** This package's `Project.toml` has read
+      `0.3.0` since 2023 (PR #7), long before any of the electrostatics work. Had a `0.3.0` been
+      registered back then, every downstream `ExTinyMD = "0.3"` bound would have silently
+      resolved to a version with none of the Phase 1/2 API — a failure that looks like a
+      dependency resolving fine and then `UndefVarError` at first use. It did not happen, but
+      the check is the only thing that distinguishes the two cases.
 - [ ] Repoint SoEwald2D's QuasiEwald pin from `rev = "decouple-extinymd"` to `rev = "main"`
       once QuasiEwald PR #5 lands
-- [ ] Remove `[sources]` from ParticleMeshEwald (PR #8 merged 2026-09-15; repo is
-      `flatironinstitute/ParticleMeshEwald.jl`, **not** HPMolSim, and it is the one package of
-      the five **not** registered in General)
-- [ ] Remove `[sources]` from QuasiEwald (PR #5; 0.2.1 → 0.3.0)
-- [ ] Remove `[sources]` from SoEwald2D (0.1.5 → 0.2.0)
-- [ ] Remove `[sources]` from FastSpecSoG (0.1.0 → 0.2.0)
+- [x] Remove `[sources]` from ParticleMeshEwald — done on `main`; resolves from the registry
+      (PR #8 merged 2026-09-15; repo is `flatironinstitute/ParticleMeshEwald.jl`, **not**
+      HPMolSim, and it is the one package of the five **not** registered in General)
+- [x] Remove `[sources]` from QuasiEwald — done on `decouple-extinymd` (PR #5; 0.2.1 → 0.3.0).
+      It pinned only ExTinyMD, so the whole block went.
+- [ ] Remove `[sources]` from SoEwald2D (0.1.5 → 0.2.0) — **still needed**, and it is now the
+      only one. Not for ExTinyMD but for **QuasiEwald**, whose 0.3.0 is unregistered while PR #5
+      is open. So SoEwald2D's gate is no longer ExTinyMD's registration but QuasiEwald's: pin
+      `rev = "decouple-extinymd"`, repoint to `rev = "main"` when #5 lands, then remove the block
+      once QuasiEwald 0.3.0 is tagged and registered.
+- [x] FastSpecSoG needs **no** `[sources]` at all (0.1.0 → 0.2.0) — ExTinyMD was its only
+      unregistered dependency, so the registration removed the need before it was ever added
 - [ ] ~~Remove `[sources]` from EwaldSummations~~ — out of scope, never decoupled, stays on
       CellListMap 0.9 and ExTinyMD 0.2
 - [ ] Confirm each resolves from the registry with no local path and no git URL
@@ -439,8 +453,10 @@ reason but the mismatch. Prefer `'lts'` + `'1'` + `'nightly'`, which tracks the 
 automatically, as ExTinyMD's own CI does. SoEwald2D (`'1'`) and FastSpecSoG
 (`'1.10'`/`'1.11'`/`'nightly'`) were already fine.
 
-Until that is done, all five are usable from sibling checkouts only. This is a deliberate,
-documented interim state, not an oversight — but it is the gate on any of them being released.
+**As of ExTinyMD 0.3.0's registration this is nearly cleared.** ParticleMeshEwald, QuasiEwald
+and FastSpecSoG now resolve entirely from the registry. Only SoEwald2D still carries a pin, and
+only because it test-depends on QuasiEwald — so the chain of gates is now
+`QuasiEwald PR #5 → tag → register → SoEwald2D's pin can go`.
 
 ## 7. Sequencing
 
