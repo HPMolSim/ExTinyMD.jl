@@ -423,8 +423,22 @@ dependency graph, checked rather than assumed:
 | SoEwald2D | **QuasiEwald** (`IcmSys`, `IcmSysInit`, used as an ICM reference in 6 places) | needs a decoupled QuasiEwald on CellListMap 0.10, so it goes second |
 | FastSpecSoG | **EwaldSummations** (`Ewald2DInteraction` and friends, as accuracy references) | out of scope now, so this must be swapped for ExTinyMD's `Ewald2D` — goes last |
 
-Anything left on CellListMap 0.9 breaks the resolve of anything that depends on it and has
-moved to 0.10, so the order is forced.
+The order is forced, but **not** by CellListMap, which is what an earlier draft of this section
+claimed. Decoupling QuasiEwald showed that it never called CellListMap at all — it only ever
+consumed neighbor lists built by ExTinyMD's own `CellListQ2D`/`CellListDirQ2D` — so the
+dependency was dead and has been dropped outright (its Task-1 "bump to 0.10" was cosmetic).
+
+The real constraint is the **ExTinyMD version**. A decoupled package requires ExTinyMD 0.3, and
+a not-yet-decoupled package caps it at 0.2. So SoEwald2D cannot pick up QuasiEwald 0.3 in its
+test environment while its own `[compat]` still says `ExTinyMD = "0.2"`: the two bounds have no
+common solution. SoEwald2D must therefore move to ExTinyMD 0.3 in the same change that picks up
+the decoupled QuasiEwald. Same ordering, different mechanism — and the mechanism matters,
+because a package that never depended on CellListMap would otherwise look unblocked when it is
+not.
+
+Worth checking per package for the same reason: **a CellListMap bump may be dead work.** Grep
+for `InPlaceNeighborList`/`neighborlist!`/`update!` before assuming the 0.9 → 0.10 migration has
+any call sites to fix.
 
 The cost is that the §4.3a wrapper pattern gets its first `simulate!` exercise on the
 heaviest package rather than the lightest. That is acceptable because the pattern's
