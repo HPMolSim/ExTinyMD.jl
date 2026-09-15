@@ -69,9 +69,13 @@ end
     @test isfinite(E_B_after)
 end
 
-@testset "PME3D constructors error helpfully without FINUFFT" begin
-    # Not testable in this file — FINUFFT is loaded. See Task 1 Step 6, which
-    # checks the fallback message by other means.
+@testset "PME3D and ICMPME3D are exported names" begin
+    # This only checks that the stub declarations in long_pme3d.jl exist — it
+    # passes whether or not FINUFFT (and therefore this extension) is loaded, and
+    # would still pass with the entire fallback-error block deleted. It is not a
+    # check that the "helpful error without FINUFFT" behaviour works; that is a
+    # documented manual step — see Task 1 Step 6, which checks the fallback
+    # message itself by other means (this file always has FINUFFT loaded).
     @test isdefined(ExTinyMD, :PME3D)
     @test isdefined(ExTinyMD, :ICMPME3D)
 end
@@ -258,6 +262,105 @@ end
     G1 = coulomb_energy(ICMPME3D(n, Ls; kw..., ϵ = 1.0), ps, charges)
     G2 = coulomb_energy(ICMPME3D(n, Ls; kw..., ϵ = 2.0), ps, charges)
     @test isapprox(G2, G1 / 2, rtol = 1e-12)
+end
+
+@testset "PME3DLong surface term responds to ϵ_inf" begin
+    # FIX 4a coverage gap: every other testset in this file runs at the default
+    # ϵ_inf = Inf, where 1/(2·Inf+1) makes the dipole surface term identically
+    # zero in both long_energy and long_force! — deleting that code entirely
+    # would not fail a single existing test. Mirrors
+    # "Ewald3D surface term responds to ϵ_inf" in test_long_ewald3d.jl, but
+    # checks PME3DLong (energy and force) against Ewald3DLong at finite ϵ_inf.
+    poses = [SVector(1.0, 4.0, 4.0), SVector(7.0, 4.0, 4.0)]
+    charges = [1.0, -1.0]
+    L = (8.0, 8.0, 8.0)
+    α, s = 0.8, 3.0   # r_c = 3.75 < 4
+
+    for ϵ_inf in (1.0, 3.0)
+        ewald = Ewald3DLong(2, L; α = α, s = s, ϵ_inf = ϵ_inf)
+        pme   = PME3DLong(2, L;  α = α, s = s, ϵ_inf = ϵ_inf)
+        @test isapprox(long_energy(pme, poses, charges),
+                       long_energy(ewald, poses, charges), rtol = 1e-12)
+
+        Fe = [zero(SVector{3,Float64}) for _ in 1:2]
+        Fp = [zero(SVector{3,Float64}) for _ in 1:2]
+        long_force!(Fe, ewald, poses, charges)
+        long_force!(Fp, pme,   poses, charges)
+        for i in 1:2, d in 1:3
+            @test isapprox(Fp[i][d], Fe[i][d], rtol = 1e-10, atol = 1e-16)
+        end
+    end
+
+    # and finite ϵ_inf must actually differ from the Inf (conducting) default —
+    # otherwise the loop above could pass with the surface term dropped entirely
+    # on both sides.
+    cond = PME3DLong(2, L; α = α, s = s)   # ϵ_inf = Inf by default
+    vac  = PME3DLong(2, L; α = α, s = s, ϵ_inf = 1.0)
+    @test !isapprox(long_energy(cond, poses, charges), long_energy(vac, poses, charges))
+end
+
+@testset "PME3D preserves Float32 (and demonstrates FIX 3's tolerance fix)" begin
+    # FIX 4b coverage gap: no Float32 test existed for the PME path. Mirrors
+    # test_long_ewald3d.jl's "coulomb_energy/coulomb_force preserve Float32
+    # through the composite" — `isfinite` is checked alongside the type, not
+    # instead of it, since that earlier test's own comment records that a
+    # type-only assertion once passed while the value was silently NaN.
+    #
+    # This also exercises FIX 3: before it, NUFFT_TOL = 1e-14 was below Float32
+    # machine epsilon and FINUFFT warned on every call ("requested tolerance
+    # epsilon too small to achieve", "increasing tol=1e-14 to eps_mach=1.19e-07").
+    # `_nufft_tol(Float32)` now asks for 1f-6 instead, so this test should run
+    # with no stderr warnings.
+    L = (8.0f0, 8.0f0, 8.0f0)
+    poses = [SVector(1.0f0, 2.0f0, 3.0f0), SVector(5.0f0, 6.0f0, 7.0f0)]
+    charges = [1.0f0, -1.0f0]
+
+    inter = PME3D(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < min(L)/2 = 4
+    E = coulomb_energy(inter, poses, charges)
+    @test E isa Float32
+    @test isfinite(E)
+
+    F = coulomb_force(inter, poses, charges)
+    @test F isa Vector{SVector{3,Float32}}
+    @test all(all(isfinite, f) for f in F)
+end
+
+@testset "PME3DLong long_energy and long_force! allocate nothing at steady state" begin
+    # FIX 2 regression. `_structure_factor!` used to build a fresh
+    # `Complex{T}[charges[j] for j in 1:m]` on every call — 16·n bytes, forever,
+    # every timestep. Reviewer measured, at n = 500 with the default n_target
+    # (the steady-state MD call): long_energy 8360 B, long_force! 8648 B, versus
+    # 0 B for the equivalent Ewald3DLong calls. `PME3DLong` now carries a
+    # preallocated `qs::Vector{Complex{T}}`, filled in place, and passes the
+    # plan's own position/charge/output buffers straight through (rather than a
+    # freshly built `view`) whenever the call is over the full particle set,
+    # which is also what let this reach exactly 0 (see `_posview` in the
+    # extension: a `SubArray` handed to `finufft_setpts!` gets boxed into the
+    # plan's `AbstractVector{T}`-typed fields, at 288 B/call, unless the call is
+    # skipped in favour of the concrete buffer itself).
+    Random.seed!(555)
+    n = 500
+    L = (40.0, 40.0, 40.0)
+    α, s = 0.4, 3.5      # r_c = 8.75 < 20
+    poses = [SVector(rand() * L[1], rand() * L[2], rand() * L[3]) for _ in 1:n]
+    charges = [isodd(i) ? 1.0 : -1.0 for i in 1:n]
+    pme = PME3DLong(n, L; α = α, s = s)
+    F = [zero(SVector{3,Float64}) for _ in 1:n]
+
+    # Function barriers: an `@allocated` measurement taken directly at top level
+    # would also see allocation from boxing non-const globals; wrapping the call
+    # in a function with concrete argument types isolates the measurement to the
+    # call itself. (No precedent for this exact idiom was found elsewhere in the
+    # test suite at the time of writing; this is the standard `@allocated` +
+    # function-barrier pattern.)
+    _energy_call(long, poses, charges) = long_energy(long, poses, charges)
+    _force_call!(F, long, poses, charges) = long_force!(F, long, poses, charges)
+
+    _energy_call(pme, poses, charges)      # warm up: compile before measuring
+    _force_call!(F, pme, poses, charges)
+
+    @test @allocated(_energy_call(pme, poses, charges)) == 0
+    @test @allocated(_force_call!(F, pme, poses, charges)) == 0
 end
 
 @testset "PME3DLong destroys its FINUFFT plans (does not leak them)" begin

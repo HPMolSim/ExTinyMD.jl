@@ -7,10 +7,16 @@ using FINUFFT
 using StaticArrays
 using LinearAlgebra: dot
 
-# FINUFFT tolerance. 1e-14 keeps the NUFFT's own error far below the k-space
-# truncation error, so PME3DLong is limited by the same cutoff as Ewald3DLong
-# rather than by the transform.
-const NUFFT_TOL = 1e-14
+# FINUFFT tolerance, T-dependent. At Float64, 1e-14 keeps the NUFFT's own error
+# far below the k-space truncation error, so PME3DLong is limited by the same
+# cutoff as Ewald3DLong rather than by the transform. At Float32, 1e-14 is below
+# machine epsilon (eps_mach ≈ 1.19e-7): FINUFFT cannot honour it, warns on stderr
+# ("requested tolerance epsilon too small ... increasing tol=1e-14 to
+# eps_mach=1.19e-07") and silently falls back to eps_mach anyway, so we ask for
+# 1f-6 instead — just above eps_mach, small enough that FINUFFT accepts it
+# without complaint, and still far below what Float32 arithmetic can resolve.
+_nufft_tol(::Type{Float32}) = 1f-6
+_nufft_tol(::Type{T}) where {T} = 1e-14
 
 function ExTinyMD.PME3DLong(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = one(T),
                             ϵ_inf::T = T(Inf)) where {T}
@@ -33,8 +39,9 @@ function ExTinyMD.PME3DLong(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = o
         end
     end
 
-    plan1 = finufft_makeplan(1, [dims...], +1, 1, NUFFT_TOL, dtype = T)
-    plan2 = finufft_makeplan(2, [dims...], -1, 1, NUFFT_TOL, dtype = T)
+    tol = _nufft_tol(T)
+    plan1 = finufft_makeplan(1, [dims...], +1, 1, tol, dtype = T)
+    plan2 = finufft_makeplan(2, [dims...], -1, 1, tol, dtype = T)
     # FINUFFT.jl attaches no finalizer, and the only release path for the C-side
     # plan (FFTW plan, sorted points, spreader workspace) is an explicit
     # finufft_destroy!. Without this every PME3DLong leaks about 2 MiB that
@@ -54,8 +61,19 @@ function ExTinyMD.PME3DLong(n_atoms::Int, L::NTuple{3,T}; α::T, s::T, ϵ::T = o
         zeros(Complex{T}, dims), zeros(Complex{T}, dims), zeros(Complex{T}, dims),
         zeros(T, n_atoms), zeros(T, n_atoms), zeros(T, n_atoms),
         zeros(Complex{T}, n_atoms), zeros(Complex{T}, n_atoms), zeros(Complex{T}, n_atoms),
+        zeros(Complex{T}, n_atoms),
         plan1, plan2)
 end
+
+# `finufft_setpts!` stores whatever array it is handed into an `AbstractVector{T}`-
+# typed field on the plan, so passing a freshly built `SubArray` (as `view(...)`
+# would) forces a small heap allocation every call to box it into that abstract
+# field — measured at 288 B per call, regardless of `m`. In the common case
+# `m == length(v)` (the default, full-target call every MD step makes), the plan's
+# own buffer can be passed directly with no view at all, which avoids that box
+# entirely; a view is only actually needed when `m` is smaller, e.g. the ICM
+# n_target < n_atoms path.
+@inline _posview(v::AbstractVector, m::Int) = m == length(v) ? v : view(v, 1:m)
 
 # Scale the first `m` positions into the plan's own buffers. Never touch `poses`:
 # ParticleMeshEwald's energy_long scales the caller's array in place and divides
@@ -80,9 +98,11 @@ end
 function _structure_factor!(out, long::PME3DLong{T}, poses, charges, m::Int,
                             plan) where {T}
     _scale!(long, poses, m)
-    finufft_setpts!(plan, view(long.xs, 1:m), view(long.ys, 1:m), view(long.zs, 1:m))
-    q = Complex{T}[charges[j] for j in 1:m]
-    finufft_exec!(plan, q, out)
+    finufft_setpts!(plan, _posview(long.xs, m), _posview(long.ys, m), _posview(long.zs, m))
+    @inbounds for j in 1:m
+        long.qs[j] = charges[j]
+    end
+    finufft_exec!(plan, _posview(long.qs, m), out)
     return out
 end
 
@@ -160,12 +180,12 @@ function ExTinyMD.long_force!(F::Vector{SVector{3,T}}, long::PME3DLong{T}, poses
     end
 
     _scale!(long, poses, n_target)
-    finufft_setpts!(long.plan2, view(long.xs, 1:n_target),
-                    view(long.ys, 1:n_target), view(long.zs, 1:n_target))
+    finufft_setpts!(long.plan2, _posview(long.xs, n_target),
+                    _posview(long.ys, n_target), _posview(long.zs, n_target))
 
-    ox = view(long.ox, 1:n_target)
-    oy = view(long.oy, 1:n_target)
-    oz = view(long.oz, 1:n_target)
+    ox = _posview(long.ox, n_target)
+    oy = _posview(long.oy, n_target)
+    oz = _posview(long.oz, n_target)
     finufft_exec!(long.plan2, long.hx, ox)
     finufft_exec!(long.plan2, long.hy, oy)
     finufft_exec!(long.plan2, long.hz, oz)

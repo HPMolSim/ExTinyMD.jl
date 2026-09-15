@@ -35,6 +35,7 @@ struct PME3DLong{T, P1, P2}
     ox::Vector{Complex{T}}
     oy::Vector{Complex{T}}
     oz::Vector{Complex{T}}
+    qs::Vector{Complex{T}}
     plan1::P1
     plan2::P2
 end

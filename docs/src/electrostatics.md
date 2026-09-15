@@ -200,7 +200,11 @@ controls how much the z-period is inflated before ELC treats the slab as
 ordinary triply-periodic Ewald. Underpadding is still the dominant failure
 mode, not an artifact of the particle-mesh solver — at `N_image = 3`, going
 from `N_pad = 1` to `N_pad = 2` takes the disagreement against the exact
-[`ICMEwald2D`](@ref) route from `9.4e-3` down to `4.7e-8`.
+[`ICMEwald2D`](@ref) route from `9.4e-3` down to `4.7e-8`. (These two figures
+were measured on the `ICMEwald3D` route, in the [ICM guidance](@ref) table
+below, not on `ICMPME3D` itself — but the two particle-mesh and direct-sum
+routes agree with each other to `4.0e-14`, so the padding behaviour transfers
+unchanged.)
 
 ```julia
 using ExTinyMD, FINUFFT, StaticArrays, Random
@@ -271,12 +275,13 @@ must be strictly less than half the smallest periodic side, i.e.
 s / α  <  min(L) / 2
 ```
 
-For [`Ewald2D`](@ref), [`ICMEwald2D`](@ref) and [`ICMEwald3D`](@ref) only
-`L[1]` and `L[2]` enter this bound, since the z axis is not periodic (for
-`ICMEwald3D` this applies to the *unpadded* slab size passed in, not the
-internal z-padded box used for ELC). Violating the bound does not silently
-degrade accuracy — `CellListMap`, which builds the real-space neighbour list,
-refuses to construct a unit cell where the cutoff exceeds half a side, and
+For [`Ewald2D`](@ref), [`ICMEwald2D`](@ref), [`ICMEwald3D`](@ref) and
+[`ICMPME3D`](@ref) only `L[1]` and `L[2]` enter this bound, since the z axis is
+not periodic (for `ICMEwald3D` and `ICMPME3D` this applies to the *unpadded*
+slab size passed in, not the internal z-padded box used for ELC). Violating
+the bound does not silently degrade accuracy — `CellListMap`, which builds the
+real-space neighbour list, refuses to construct a unit cell where the cutoff
+exceeds half a side, and
 raises
 
 ```
@@ -319,8 +324,9 @@ long_force!
 
 ## ICM guidance
 
-[`ICM`](@ref) and its two constructors, [`ICMEwald2D`](@ref) and
-[`ICMEwald3D`](@ref), model a slab confined between two dielectric walls by
+[`ICM`](@ref) and its three constructors, [`ICMEwald2D`](@ref),
+[`ICMEwald3D`](@ref) and [`ICMPME3D`](@ref), model a slab confined between two
+dielectric walls by
 reflecting each real particle into an image series along z (`icm_reflect!`,
 internal).
 
@@ -352,9 +358,10 @@ internal).
   the reflection recurrence shows the series converging geometrically in
   `γ_up * γ_down`, so a handful of images is usually enough once
   `|γ_up * γ_down| < 1`.
-- `N_pad`, used only by [`ICMEwald3D`](@ref), controls how much the z-period
-  of the padded box is inflated (`L_pad[3] = (2·N_pad + 1)·L[3]`) before the
-  slab is treated as ordinary triply-periodic Ewald3D plus an ELC correction.
+- `N_pad`, used by [`ICMEwald3D`](@ref) and [`ICMPME3D`](@ref), controls how
+  much the z-period of the padded box is inflated (`L_pad[3] = (2·N_pad +
+  1)·L[3]`) before the slab is treated as ordinary triply-periodic Ewald (or
+  particle-mesh Ewald) plus an ELC correction.
   **`N_pad` must be large enough that periodic replicas of the whole image
   stack fail to interact — not merely the real slab.** The image stack already
   spans `(2·N_image + 1)·L[3]` in z, so a `N_pad` sized only for the bare slab
