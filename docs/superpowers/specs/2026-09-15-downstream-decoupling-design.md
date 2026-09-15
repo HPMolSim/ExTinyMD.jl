@@ -1,7 +1,7 @@
 # Phase 3: Decoupling the Downstream Electrostatics Packages — Design
 
 Date: 2026-09-15
-Status: in progress — §5.1 ParticleMeshEwald complete and reviewed
+Status: in progress — §5.1 ParticleMeshEwald complete and reviewed; §5.4 EwaldSummations descoped by the user
 
 ## 1. Context
 
@@ -227,7 +227,27 @@ defines `ExTinyMD.update_acceleration!`, so the adapter mostly moves rather than
 generation — `energy(interaction, neighbor, info, atoms)` — and has **no**
 `update_acceleration!`, so its adapter is new work rather than a move.
 
-### 5.4 EwaldSummations — thin it, per the user's decision
+### 5.4 EwaldSummations — OUT OF SCOPE
+
+**The user removed this package from the phase on 2026-09-15:** "no need to include
+EwaldSummations, the others are good."
+
+It therefore stays on `ExTinyMD = "0.2"` / `CellListMap = "0.9"`, is not decoupled, is not
+thinned, and its k-space implementations are not deleted. Two consequences:
+
+- **The migration check is no longer a gate.** Phase 1's spec §8.2 deferred to this phase a
+  script proving ExTinyMD's stdlib reproduces EwaldSummations before the latter's code was
+  removed. Nothing is being removed, so nothing needs gating. The check retains independent
+  value as cross-validation against an implementation nobody has touched, but it is optional
+  and unscheduled.
+- **FastSpecSoG cannot keep EwaldSummations as a test dependency.** Its tests use
+  `Ewald2DInteraction`, `Ewald2D_short_energy_N` and `Ewald2D_long_energy_N` as accuracy
+  references. Since EwaldSummations stays on CellListMap 0.9, FastSpecSoG's test target will
+  not resolve once it moves to 0.10. The substitution is ExTinyMD's own `Ewald2D`, which is a
+  strictly better reference: same physics, and 1128 tests behind it rather than an
+  unmaintained package. See §5.3.
+
+*Original plan, retained for the record:*
 
 1164 src LOC, **100 `Point` uses**. The user chose to thin this package: ExTinyMD's stdlib now
 owns the k-space Ewald methods, and EwaldSummations keeps what is genuinely its own — direct
@@ -334,11 +354,35 @@ documented interim state, not an oversight — but it is the gate on any of them
 
 ## 7. Sequencing
 
-One plan per package, executed in the §5 order. Each is independently mergeable and leaves the
-repository working, so the phase can stop cleanly after any package.
+**Order: QuasiEwald → SoEwald2D → FastSpecSoG.** ParticleMeshEwald is done; EwaldSummations
+is out of scope.
 
-ParticleMeshEwald first is deliberate: it is the cheapest place to discover that something
-about the `[weakdeps]`/`[extensions]`/`ext/` arrangement does not work as expected.
+This is the reverse of ordering by coupling weight, and the reason is the inter-package test
+dependency graph, checked rather than assumed:
+
+| package | test target depends on | consequence |
+|---|---|---|
+| QuasiEwald | `Test` only | nothing blocks it — goes first |
+| SoEwald2D | **QuasiEwald** (`IcmSys`, `IcmSysInit`, used as an ICM reference in 6 places) | needs a decoupled QuasiEwald on CellListMap 0.10, so it goes second |
+| FastSpecSoG | **EwaldSummations** (`Ewald2DInteraction` and friends, as accuracy references) | out of scope now, so this must be swapped for ExTinyMD's `Ewald2D` — goes last |
+
+Anything left on CellListMap 0.9 breaks the resolve of anything that depends on it and has
+moved to 0.10, so the order is forced.
+
+The cost is that the §4.3a wrapper pattern gets its first `simulate!` exercise on the
+heaviest package rather than the lightest. That is acceptable because the pattern's
+*soundness* is already established — ParticleMeshEwald's reviewer verified by execution that
+a struct defined inside an extension module can subtype `ExTinyMD.AbstractInteraction`, and
+that `PME <: AbstractInteraction` is false even with the extension loaded. What remains
+untested is ergonomics under load, not whether it works.
+
+QuasiEwald also has a second relocation the others do not: its `SortingFinder` subtypes
+`ExTinyMD.AbstractNeighborFinder`, so it faces the same problem as the interaction types and
+moves to the extension alongside them. Learning that on the first package rather than the
+last is a small compensation for the reordering.
+
+Each package is independently mergeable and leaves its repository working, so the phase can
+stop cleanly after any of them.
 
 ## 8. Open question for the user: ParticleMeshEwald's future
 
