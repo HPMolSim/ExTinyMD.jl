@@ -1,5 +1,14 @@
-struct TrajectoryLogger{TI} <: AbstractLogger 
-    step::TI 
+"""
+    TrajectoryLogger{TI} <: AbstractLogger
+
+Records a full trajectory frame (`id, atom_type, x, y, z, vx, vy, vz` for every
+particle) every `step` steps, appended to `trajectory_file` when
+`output = true`.
+
+    TrajectoryLogger(; step, trajectory_file = "trajectory.txt", output = true)
+"""
+struct TrajectoryLogger{TI} <: AbstractLogger
+    step::TI
     trajectory_file::String
     output::Bool
 end

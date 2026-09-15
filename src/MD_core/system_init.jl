@@ -1,4 +1,13 @@
 # notice that this function only support 3D systems
+"""
+    random_position(n_atoms, place, boundary; min_r = 0, max_attempts = 100)
+
+Randomly place `n_atoms` points inside the box `place = (xlo, xhi, ylo, yhi,
+zlo, zhi)`. When `min_r > 0`, each new point is rejected and retried
+(respecting `boundary`'s periodic images) until it is at least `min_r` from
+every existing point, giving up after `max_attempts` consecutive failures.
+Returns a `Vector{Point{3,T}}`. 3D only.
+"""
 function random_position(n_atoms::TI, place::NTuple{6, T}, boundary::Boundary{T}; min_r=zero(T), max_attempts::TI=100) where {T, TI<:Integer}
     atoms_coords = Vector{Point{3, T}}()
     
@@ -61,6 +70,13 @@ end
 end
 
 
+"""
+    random_velocity(; temp, atoms, rng = Random.GLOBAL_RNG)
+
+Draw a Maxwell-Boltzmann velocity for each atom in `atoms` at temperature
+`temp` (per-component standard deviation `sqrt(temp / mass)`). Returns a
+`Vector{Point{3,T}}`.
+"""
 function random_velocity(;temp::T, atoms::Vector{Atom{T}}, rng=Random.GLOBAL_RNG) where T
     atoms_velocity = Vector{Point{3, T}}()
 
@@ -89,6 +105,13 @@ function SimulationInfo(n_atoms::Int, atoms::Vector{Atom{T}}, place::NTuple{6, T
     return SimulationInfo{T}(zero(Int64), particle_info, id_dict)
 end
 
+"""
+    create_atoms(atoms_types::Vector{Tuple{Int, Atom{T}}}) -> Vector{Atom{T}}
+
+Expand `[(count_1, atom_1), (count_2, atom_2), ...]` into a flat vector
+containing `count_1` copies of `atom_1`, then `count_2` copies of `atom_2`,
+and so on.
+"""
 function create_atoms(atoms_types::Vector{Tuple{Int, Atom{T}}}) where{T}
     atoms = Vector{Atom{T}}()
     for atom_type in atoms_types

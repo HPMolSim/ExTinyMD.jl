@@ -1,3 +1,10 @@
+"""
+    SubLennardJones(sub_down, sub_up; ϵ = 1.0, cutoff = 3.5, σ = 1.0)
+
+Lennard-Jones interaction between each particle and two flat substrates at
+`z = sub_down` and `z = sub_up`, acting only in z on particles within
+`cutoff` of a wall (see [`SubNeighborFinder`](@ref)).
+"""
 struct SubLennardJones{T} <: AbstractInteraction
     ϵ::T
     cutoff::T
@@ -19,7 +26,7 @@ function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::S
         if zero(T) < dz < interaction.cutoff
             temp = (interaction.σ)^2 / dz^2
             lj_force = T(24) * interaction.ϵ * (T(2) * temp^T(6) - temp^T(3)) / dz
-            mass = atoms[i].mass
+            mass = atoms[id].mass
             info.particle_info[i].acceleration += Point(zero(T), zero(T), lj_force / mass)
         end
     end
@@ -30,7 +37,7 @@ function update_acceleration!(interaction::SubLennardJones{T}, neighborfinder::S
         if zero(T) < dz < interaction.cutoff
             temp = (interaction.σ)^2 / dz^2
             lj_force = - T(24) * interaction.ϵ * (T(2) * temp^T(6) - temp^T(3)) / dz
-            mass = atoms[i].mass
+            mass = atoms[id].mass
             info.particle_info[i].acceleration += Point(zero(T), zero(T), lj_force / mass)
         end
     end

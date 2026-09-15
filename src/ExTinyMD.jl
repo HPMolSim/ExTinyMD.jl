@@ -1,6 +1,6 @@
 module ExTinyMD
 
-using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles
+using LinearAlgebra, Random, Distributions, CellListMap, StaticArrays, DelimitedFiles, SpecialFunctions
 
 export Point, Atom, Boundary, Q2dBoundary, CubicBoundary, MDSys, position_check3D, position_checkQ2D, BoundaryCheck!, SimulationInfo, thermostat_update!, update_acceleration!, update_finder!, NoInteraction, AllNeighborFinder, NoNeighborFinder, NoThermoStat, dist2, random_position, random_velocity, create_atoms
 export energy
@@ -11,7 +11,15 @@ export TemperatureLogger, TrajectoryLogger, EnergyLogger
 
 export SubLennardJones, LennardJones, ExternalField
 
-export load_trajection, data2info, load_lammpstrj
+export Periodic3D, PeriodicQ2D, ewald_cutoffs, check_neutrality
+export EwaldShort, short_energy, short_force!
+export Ewald3DLong, long_energy, long_force!
+export Ewald2DLong, Ewald2D
+export EwaldInteraction, coulomb_energy, coulomb_force, coulomb_force!, Ewald3D
+export ICM, ICMShort, ICMEwald2D, ICMEwald3D
+export gather_charges!, gather_positions!
+
+export load_trajectory, data2info, load_lammpstrj
 export z_hist, hist_init, distance_hist!
 export MSD
 
@@ -39,6 +47,15 @@ include("MD_core/recorder/energy_logger.jl")
 include("interactions/lennard_jones.jl")
 include("interactions/substrate_lennard_jones.jl")
 include("interactions/external_field.jl")
+
+# electrostatics standard library
+include("interactions/electrostatics/common.jl")
+include("interactions/electrostatics/short.jl")
+include("interactions/electrostatics/long_ewald3d.jl")
+include("interactions/electrostatics/long_ewald2d.jl")
+include("interactions/electrostatics/icm.jl")
+include("interactions/electrostatics/ewald.jl")
+include("interactions/electrostatics/adapter.jl")
 
 # Tools
 include("Tools/data_loader.jl")

@@ -1,3 +1,10 @@
+"""
+    AndersenThermoStat(temperature, ν)
+
+Andersen thermostat at the given `temperature`, with collision frequency `ν`:
+each step, every particle's velocity is redrawn from the Maxwell-Boltzmann
+distribution with probability `ν * dt`.
+"""
 struct AndersenThermoStat{T} <: AbstractThermoStat
     temperature::T
     ν::T

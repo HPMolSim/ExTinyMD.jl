@@ -1,5 +1,17 @@
-struct EnergyLogger{TI} <: AbstractLogger 
-    step::TI 
+"""
+    EnergyLogger{TI} <: AbstractLogger
+
+Records kinetic energy and the energy of each of `interactions` every `step`
+steps, writing a CSV-like `step, Ek, ...` line to `energy_file` when
+`output = true`.
+
+    EnergyLogger(step; interactions, energy_names, energy_file = "energy.txt", output = true)
+
+`interactions` is a `Vector` of `(interaction, neighbor_finder)` pairs and
+`energy_names` labels them, one name per pair.
+"""
+struct EnergyLogger{TI} <: AbstractLogger
+    step::TI
     energy_file::String
     output::Bool
     interactions::Vector{Tuple{AbstractInteraction, AbstractNeighborFinder}}

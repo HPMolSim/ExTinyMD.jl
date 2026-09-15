@@ -1,3 +1,12 @@
+"""
+    SubNeighborFinder{T, TI} <: AbstractNeighborFinder
+
+Tracks which particles are within `cutoff` of two flat substrates at
+`z = sub_down` and `z = sub_up`, for [`SubLennardJones`](@ref). Maintains
+`up_neighbor`/`down_neighbor`, the ids close to each wall.
+
+    SubNeighborFinder(cutoff, info, sub_down, sub_up; update_steps = 100)
+"""
 mutable struct SubNeighborFinder{T, TI} <: AbstractNeighborFinder
     cutoff::T
     update_steps::TI
