@@ -441,9 +441,22 @@ remembered, so it is recorded here as one coordinated item:
 | | state |
 |---|---|
 | ExTinyMD Phase 1 (electrostatics stdlib) | merged, PRs #11/#12 |
-| ExTinyMD Phase 2 (PME3D/ICMPME3D via FINUFFT) | merged, PR #13 |
-| ParticleMeshEwald (Phase 3a) | merged, PR #8 |
-| QuasiEwald (Phase 3b) | PR #5 open |
+| ExTinyMD Phase 2 (PME3D/ICMPME3D via FINUFFT) | merged, PR #13; **v0.3.0 tagged and registered** |
+| ParticleMeshEwald (Phase 3a) | merged, PR #8; `[sources]` removed |
+| QuasiEwald (Phase 3b) | PR #5 open, CI green; 0.2.1 → 0.3.0 |
+| SoEwald2D (Phase 3c) | PR #15 open, CI green; 0.1.5 → 0.2.0 |
+| FastSpecSoG (Phase 3d) | PR #10 open; 0.1.0 → 0.2.0 |
+| EwaldSummations | out of scope, untouched |
+
+Suite counts, each verified by running `Pkg.test()` in this session rather than taken from an
+implementer's report:
+
+| package | tests | note |
+|---|---|---|
+| ParticleMeshEwald | 16 | resolves registry ExTinyMD v0.3.0 |
+| QuasiEwald | 3972 | from 3711 at fork |
+| SoEwald2D | 3537 | from 3231 (pristine tree does not load on current Julia) |
+| FastSpecSoG | 1076 | from 870 at fork |
 
 ### A CI trap worth one line
 
