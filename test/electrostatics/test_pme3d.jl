@@ -311,16 +311,28 @@ end
     # epsilon too small to achieve", "increasing tol=1e-14 to eps_mach=1.19e-07").
     # `_nufft_tol(Float32)` now asks for 1f-6 instead, so this test should run
     # with no stderr warnings.
+    #
+    # `@test_nowarn` below is load-bearing, not decorative: the re-reviewer
+    # found that `isa Float32` + `isfinite` alone pass identically whether or
+    # not FIX 3 is applied — FINUFFT's `WARN_EPS_TOO_SMALL` path only warns and
+    # clamps to `eps_mach`, still returning a valid finite `Float32` result. So
+    # without an explicit no-warning assertion, reverting `_nufft_tol` to a bare
+    # `1e-14` literal would pass every other assertion here silently. Verified:
+    # with `_nufft_tol` temporarily reverted to `(::Type{T}) where {T} = 1e-14`
+    # (no Float32 method), `@test_nowarn` on the block below fails, showing both
+    # the C-side `setup_spreadinterp warning: increasing tol=1e-14 to
+    # eps_mach=1.19e-07.` text and the Julia `@warn` from
+    # `FINUFFT/src/errors.jl`; restoring `_nufft_tol` makes it pass again.
     L = (8.0f0, 8.0f0, 8.0f0)
     poses = [SVector(1.0f0, 2.0f0, 3.0f0), SVector(5.0f0, 6.0f0, 7.0f0)]
     charges = [1.0f0, -1.0f0]
 
-    inter = PME3D(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < min(L)/2 = 4
-    E = coulomb_energy(inter, poses, charges)
+    inter = @test_nowarn PME3D(2, L; α = 0.8f0, s = 3.0f0)   # r_c = 3.75 < min(L)/2 = 4
+    E = @test_nowarn coulomb_energy(inter, poses, charges)
     @test E isa Float32
     @test isfinite(E)
 
-    F = coulomb_force(inter, poses, charges)
+    F = @test_nowarn coulomb_force(inter, poses, charges)
     @test F isa Vector{SVector{3,Float32}}
     @test all(all(isfinite, f) for f in F)
 end
