@@ -1,6 +1,6 @@
 # ExTinyMD
 
-[![Build Status](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/ArrogantGao/ExTinyMD.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Build Status](https://github.com/HPMolSim/ExTinyMD.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/HPMolSim/ExTinyMD.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/HPMolSim/ExTinyMD.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/HPMolSim/ExTinyMD.jl)
 [![Documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://HPMolSim.github.io/ExTinyMD.jl/dev)
 
